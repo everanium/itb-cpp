@@ -34,13 +34,6 @@ build in one step:
 ./bindings/cpp/build.sh
 ```
 
-For hosts without AVX-512+VL CPUs, opt out of the 4-lane batched
-chain-absorb wrapper:
-
-```bash
-./bindings/cpp/build.sh --noitbasm
-```
-
 Three underlying steps: build `libitb.so` from repo root, build
 `libitb_c.a` via the C binding's Makefile, run `check_header.sh` to
 verify `include/itb.h` has not drifted from
@@ -56,17 +49,6 @@ cd ../cpp && ./check_header.sh
 
 (macOS produces `libitb.dylib` under `dist/darwin-<arch>/`,
 Windows produces `libitb.dll` under `dist/windows-<arch>/`.)
-
-### Build tags governing hash-kernel selection
-
-| Build flag | ITB chain-absorb asm | Upstream hash asm | Use case |
-|---|---|---|---|
-| (none) | engaged | engaged | Default — full asm stack |
-| <code>‑tags=noitbasm</code> | off | engaged | Hosts without AVX-512+VL where the 4-lane chain-absorb wrapper is dead weight; the encrypt path falls into `process_cgo`'s nil-`BatchHash` branch and drives 4 single-call invocations through the upstream asm directly |
-
-`-tags=noitbasm` does not disable upstream asm in `zeebo/blake3`,
-`golang.org/x/crypto`, or `jedisct1/go-aes`. The flag governs only
-the shared library, not the binding language.
 
 ### Compiler selection
 
@@ -822,7 +804,7 @@ textual name. Empty plaintext / ciphertext is rejected with
 
 ### Status codes
 
-The 24 `ITB_*` constants are mirrored bit-identically as
+The 26 `ITB_*` constants are mirrored bit-identically as
 `itb::status::k*` constexpr ints in `<itb/errors.hpp>`.
 
 | Code | Constant | C++ mirror | Path | Typed exception |
@@ -850,6 +832,8 @@ The 24 `ITB_*` constants are mirrored bit-identically as
 | 20 | `ITB_BLOB_MALFORMED` | `itb::status::kBlobMalformed` | warm | `ItbBlobMalformedError` |
 | 21 | `ITB_BLOB_VERSION_TOO_NEW` | `itb::status::kBlobVersionTooNew` | warm | `ItbBlobVersionTooNewError` |
 | 22 | `ITB_BLOB_TOO_MANY_OPTS` | `itb::status::kBlobTooManyOpts` | cold | `ItbError` |
+| 23 | `ITB_STREAM_TRUNCATED` | `itb::status::kStreamTruncated` | warm | `ItbStreamTruncatedError` |
+| 24 | `ITB_STREAM_AFTER_FINAL` | `itb::status::kStreamAfterFinal` | warm | `ItbStreamAfterFinalError` |
 | 99 | `ITB_INTERNAL` | `itb::status::kInternal` | cold | `ItbError` |
 
 Warm-path codes — MAC failure on tampered ciphertext, Easy Mode blob
