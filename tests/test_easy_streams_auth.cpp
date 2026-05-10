@@ -253,3 +253,85 @@ TEST_CASE("encryptor stream-auth detects stream-prefix tamper",
     REQUIRE(threw);
     REQUIRE(code == itb::status::kMacFailure);
 }
+
+namespace {
+
+// Regression: per-instance nonce_bits must drive the auth-stream
+// decoder's chunk-length parse, not the process-global setting.
+// run_paired_auth_roundtrip_nonce_bits exercises encrypt + decrypt
+// with a paired pair of encryptors at the requested per-instance
+// nonce-bits value, over a multi-chunk plaintext.
+void run_paired_auth_roundtrip_nonce_bits(int nonce_bits, int mode,
+                                            std::string_view mac_name) {
+    itb::Encryptor enc{"blake3", 1024, mac_name, mode};
+    enc.set_nonce_bits(nonce_bits);
+    auto blob = enc.export_state();
+    itb::Encryptor sib{"blake3", 1024, mac_name, mode};
+    sib.set_nonce_bits(nonce_bits);
+    sib.import_state(blob);
+
+    // ~96 KiB plaintext -> multi-chunk wire at kSmallChunk = 4096.
+    auto pt = pseudo_payload(kSmallChunk * 24 + 17);
+    std::vector<std::uint8_t> ct;
+    VecSource src{&pt};
+    itb::encryptor_stream_encrypt_auth(enc.raw_handle(),
+                                       std::ref(src), VecSink{&ct},
+                                       kSmallChunk);
+
+    std::vector<std::uint8_t> recovered;
+    VecSource src2{&ct};
+    itb::encryptor_stream_decrypt_auth(sib.raw_handle(),
+                                       std::ref(src2), VecSink{&recovered},
+                                       kSmallChunk);
+    REQUIRE(recovered == pt);
+}
+
+} // namespace
+
+TEST_CASE("encryptor stream-auth round-trip non-default nonce_bits single",
+          "[easy_streams_auth][nonce_bits][single]") {
+    for (int nb : {256, 512}) {
+        run_paired_auth_roundtrip_nonce_bits(nb, 1, "");
+    }
+}
+
+TEST_CASE("encryptor stream-auth round-trip non-default nonce_bits triple",
+          "[easy_streams_auth][nonce_bits][triple]") {
+    for (int nb : {256, 512}) {
+        run_paired_auth_roundtrip_nonce_bits(nb, 3, "kmac256");
+    }
+}
+
+TEST_CASE("encryptor stream-auth global diverges from instance nonce_bits",
+          "[easy_streams_auth][nonce_bits][regression]") {
+    // Pin the process-global at 128 (the default). The per-instance
+    // value is then bumped to 512. Decryption must still succeed; if
+    // the auth-stream parser silently consults the global, chunk_len
+    // mismatches and the round-trip fails.
+    itb::set_nonce_bits(128);
+    REQUIRE(itb::get_nonce_bits() == 128);
+
+    itb::Encryptor enc{"blake3", 1024, "", 1};
+    enc.set_nonce_bits(512);
+    auto blob = enc.export_state();
+    itb::Encryptor sib{"blake3", 1024, "", 1};
+    sib.set_nonce_bits(512);
+    sib.import_state(blob);
+
+    // The per-instance set must not leak into the global.
+    REQUIRE(itb::get_nonce_bits() == 128);
+
+    auto pt = pseudo_payload(kSmallChunk * 24 + 17);
+    std::vector<std::uint8_t> ct;
+    VecSource src{&pt};
+    itb::encryptor_stream_encrypt_auth(enc.raw_handle(),
+                                       std::ref(src), VecSink{&ct},
+                                       kSmallChunk);
+
+    std::vector<std::uint8_t> recovered;
+    VecSource src2{&ct};
+    itb::encryptor_stream_decrypt_auth(sib.raw_handle(),
+                                       std::ref(src2), VecSink{&recovered},
+                                       kSmallChunk);
+    REQUIRE(recovered == pt);
+}

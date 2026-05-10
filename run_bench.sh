@@ -11,6 +11,7 @@
 #   make bench && ./run_bench.sh
 #   ITB_BENCH_MIN_SEC=10 ./run_bench.sh       # tighter confidence
 #   ITB_BENCH_FILTER='blake3' ./run_bench.sh  # one primitive only
+#   ./run_bench.sh --wrapper-only             # only the wrapper bench (skip Single/Triple/LockSeed)
 
 set -eu
 set -o pipefail
@@ -24,6 +25,13 @@ fi
 
 export ITB_BENCH_MIN_SEC="${ITB_BENCH_MIN_SEC:-5}"
 
+wrapper_only=0
+case "${1:-}" in
+    --wrapper-only) wrapper_only=1;;
+    "")             ;;
+    *)              echo "unknown option: $1" >&2; exit 2;;
+esac
+
 run_pass() {
     local label="$1"
     local bin="$2"
@@ -31,6 +39,16 @@ run_pass() {
     echo "==== ${label} ===="
     "$bin" "$@"
 }
+
+if [ "$wrapper_only" -eq 1 ]; then
+    if [ ! -x bench/build/bench_wrapper ]; then
+        echo "bench_wrapper binary missing — run \`make bench\` first" >&2
+        exit 1
+    fi
+    unset ITB_LOCKSEED
+    run_pass "Wrapper only -- format-deniability" ./bench/build/bench_wrapper
+    exit 0
+fi
 
 # Pass 1: Single Ouroboros, no LockSeed.
 unset ITB_LOCKSEED

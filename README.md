@@ -130,6 +130,8 @@ CSPRNG-fresh inside the encryptor at constructor time.
 ```cpp
 #include <fstream>
 #include <itb.hpp>
+#include <itb/wrapper.hpp>
+#include <vector>
 
 constexpr std::size_t kChunkSize = std::size_t(16) * 1024 * 1024;
 
@@ -146,15 +148,74 @@ auto make_writer = [](std::ofstream& out) {
 };
 
 itb::Encryptor enc{"areion512", 1024, "hmac-blake3", 1};
+
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
+
+// Sender — collect the inner ITB stream in memory, then wrap the
+// transcript end-to-end through one keystream session before flushing
+// to the wire.
 {
+    std::vector<std::uint8_t> inner;
     std::ifstream fin("/tmp/64mb.src", std::ios::binary);
+    enc.stream_encrypt_auth(
+        make_reader(fin),
+        [&inner](const std::uint8_t* p, std::size_t n) {
+            inner.insert(inner.end(), p, p + n);
+        },
+        kChunkSize);
+
+    // Format-deniability ITB masking via outer-cipher streaming wrapper (AES-128-CTR) - same ~0% overhead in stream mode (Recommended in every case).
+    itb::wrapper::WrapStreamWriter ww{
+        itb::wrapper::Cipher::Aes128Ctr,
+        outerKey.data(), outerKey.size()};
+    ww.update_in_place(inner.data(), inner.size());
+
     std::ofstream fout("/tmp/64mb.enc", std::ios::binary);
-    enc.stream_encrypt_auth(make_reader(fin), make_writer(fout), kChunkSize);
+    fout.write(reinterpret_cast<const char*>(ww.nonce().data()),
+               static_cast<std::streamsize>(ww.nonce().size()));
+    fout.write(reinterpret_cast<const char*>(inner.data()),
+               static_cast<std::streamsize>(inner.size()));
 }
+
+// Receiver — strip the leading nonce, unwrap the body, feed the
+// recovered inner-stream bytes to decrypt_auth.
 {
+    const std::size_t nlen =
+        itb::wrapper::nonce_size(itb::wrapper::Cipher::Aes128Ctr);
     std::ifstream fin("/tmp/64mb.enc", std::ios::binary);
+    std::vector<std::uint8_t> wire_nonce(nlen, 0);
+    fin.read(reinterpret_cast<char*>(wire_nonce.data()),
+             static_cast<std::streamsize>(nlen));
+    itb::wrapper::UnwrapStreamReader ur{
+        itb::wrapper::Cipher::Aes128Ctr,
+        outerKey.data(), outerKey.size(),
+        wire_nonce.data(), wire_nonce.size()};
+
+    std::vector<std::uint8_t> inner_recovered;
+    {
+        std::vector<std::uint8_t> buf(1u << 16);
+        while (fin) {
+            fin.read(reinterpret_cast<char*>(buf.data()),
+                     static_cast<std::streamsize>(buf.size()));
+            const auto got = static_cast<std::size_t>(fin.gcount());
+            if (got == 0) break;
+            ur.update_in_place(buf.data(), got);
+            inner_recovered.insert(inner_recovered.end(),
+                                   buf.begin(), buf.begin() + got);
+        }
+    }
+
+    std::size_t pos = 0;
+    auto inner_reader = [&](std::uint8_t* dst, std::size_t cap) -> std::size_t {
+        const std::size_t take = std::min(cap, inner_recovered.size() - pos);
+        std::copy_n(inner_recovered.begin() + static_cast<std::ptrdiff_t>(pos),
+                    take, dst);
+        pos += take;
+        return take;
+    };
     std::ofstream fout("/tmp/64mb.dst", std::ios::binary);
-    enc.stream_decrypt_auth(make_reader(fin), make_writer(fout), kChunkSize);
+    enc.stream_decrypt_auth(inner_reader, make_writer(fout), kChunkSize);
 }
 ```
 
@@ -196,12 +257,31 @@ itb::Seed start{"areion512", 1024};
 auto mac_key = csprng_mac_key();           // 32 bytes from /dev/urandom
 itb::Mac mac{"hmac-blake3", mac_key};
 
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
+
 {
+    std::vector<std::uint8_t> inner;
     std::ifstream fin("/tmp/64mb.src", std::ios::binary);
+    itb::encrypt_stream_auth(
+        noise, data, start, mac,
+        make_reader(fin),
+        [&inner](const std::uint8_t* p, std::size_t n) {
+            inner.insert(inner.end(), p, p + n);
+        },
+        kChunkSize);
+
+    // Format-deniability ITB masking via outer-cipher streaming wrapper (AES-128-CTR) - same ~0% overhead in stream mode (Recommended in every case).
+    itb::wrapper::WrapStreamWriter ww{
+        itb::wrapper::Cipher::Aes128Ctr,
+        outerKey.data(), outerKey.size()};
+    ww.update_in_place(inner.data(), inner.size());
+
     std::ofstream fout("/tmp/64mb.enc", std::ios::binary);
-    itb::encrypt_stream_auth(noise, data, start, mac,
-                             make_reader(fin), make_writer(fout),
-                             kChunkSize);
+    fout.write(reinterpret_cast<const char*>(ww.nonce().data()),
+               static_cast<std::streamsize>(ww.nonce().size()));
+    fout.write(reinterpret_cast<const char*>(inner.data()),
+               static_cast<std::streamsize>(inner.size()));
 }
 ```
 
@@ -284,16 +364,40 @@ std::string plaintext = "any text or binary data - including 0x00 bytes";
 std::vector<std::uint8_t> encrypted = enc.encrypt_auth(plaintext);
 std::cout << "encrypted: " << encrypted.size() << " bytes\n";
 
-// Send `encrypted` + `blob`. The destructor zeroes key material at
-// scope exit; enc.close() surfaces release-time errors instead of
-// swallowing them.
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
+
+// Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
+auto nonce = itb::wrapper::wrap_in_place(
+    itb::wrapper::Cipher::Aes128Ctr,
+    outerKey.data(), outerKey.size(),
+    encrypted.data(), encrypted.size());
+
+// Compose the on-wire blob: `nonce || mutated-ciphertext`.
+std::vector<std::uint8_t> wire(nonce.size() + encrypted.size());
+std::copy(nonce.begin(), nonce.end(), wire.begin());
+std::copy(encrypted.begin(), encrypted.end(),
+          wire.begin() + static_cast<std::ptrdiff_t>(nonce.size()));
+
+// Send `wire` + `blob` + `outerKey` (out-of-band). The destructor zeroes
+// key material at scope exit; enc.close() surfaces release-time errors
+// instead of swallowing them.
 
 
 // Receiver
 
-// Receive encrypted payload + state blob
-// std::vector<std::uint8_t> encrypted = ...;
-// std::vector<std::uint8_t> blob      = ...;
+// Receive on-wire blob + state blob + outerKey (out-of-band).
+// std::vector<std::uint8_t> wire     = ...;
+// std::vector<std::uint8_t> blob     = ...;
+// std::vector<std::uint8_t> outerKey = ...;
+
+// Strip nonce + XOR-decrypt the body in place. body.first / body.second
+// is the (pointer, length) view over the recovered ITB ciphertext.
+auto body = itb::wrapper::unwrap_in_place(
+    itb::wrapper::Cipher::Aes128Ctr,
+    outerKey.data(), outerKey.size(),
+    wire.data(), wire.size());
+std::vector<std::uint8_t> encrypted(body.first, body.first + body.second);
 
 itb::set_max_workers(8);  // 8 cores (default: 0 = all)
 
@@ -400,12 +504,33 @@ auto blob = enc.export_state();
 std::string plaintext = "mixed-primitive Easy Mode payload";
 auto encrypted = enc.encrypt_auth(plaintext);
 
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
+
+// Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
+auto nonce = itb::wrapper::wrap_in_place(
+    itb::wrapper::Cipher::Aes128Ctr,
+    outerKey.data(), outerKey.size(),
+    encrypted.data(), encrypted.size());
+
+std::vector<std::uint8_t> wire(nonce.size() + encrypted.size());
+std::copy(nonce.begin(), nonce.end(), wire.begin());
+std::copy(encrypted.begin(), encrypted.end(),
+          wire.begin() + static_cast<std::ptrdiff_t>(nonce.size()));
+
 
 // Receiver
 
-// Receive encrypted payload + state blob
-// std::vector<std::uint8_t> encrypted = ...;
-// std::vector<std::uint8_t> blob      = ...;
+// Receive on-wire blob + state blob + outerKey (out-of-band).
+// std::vector<std::uint8_t> wire     = ...;
+// std::vector<std::uint8_t> blob     = ...;
+// std::vector<std::uint8_t> outerKey = ...;
+
+auto body = itb::wrapper::unwrap_in_place(
+    itb::wrapper::Cipher::Aes128Ctr,
+    outerKey.data(), outerKey.size(),
+    wire.data(), wire.size());
+std::vector<std::uint8_t> encrypted_r(body.first, body.first + body.second);
 
 // Matching mixed encryptor — every per-slot name plus key_bits and
 // mac must agree with the sender. import_state validates each
@@ -417,7 +542,7 @@ auto dec = itb::Encryptor::Mixed(
 
 dec.import_state(blob);
 
-auto decrypted = dec.decrypt_auth(encrypted);
+auto decrypted = dec.decrypt_auth(encrypted_r);
 std::string decrypted_str(decrypted.begin(), decrypted.end());
 std::cout << "decrypted: " << decrypted_str << "\n";
 ```
@@ -430,6 +555,7 @@ all wrapped behind one `Encryptor` constructor with `mode = 3`.
 
 ```cpp
 #include <itb.hpp>
+#include <itb/wrapper.hpp>
 #include <string>
 
 // mode=3 selects Triple; other arguments behave as in the Single case.
@@ -438,7 +564,29 @@ itb::Encryptor enc{"areion512", 2048, "hmac-blake3", 3};
 std::string plaintext = "Triple Ouroboros payload";
 
 auto encrypted = enc.encrypt_auth(plaintext);
-auto decrypted = enc.decrypt_auth(encrypted);
+
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
+
+// Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
+auto nonce = itb::wrapper::wrap_in_place(
+    itb::wrapper::Cipher::Aes128Ctr,
+    outerKey.data(), outerKey.size(),
+    encrypted.data(), encrypted.size());
+
+std::vector<std::uint8_t> wire(nonce.size() + encrypted.size());
+std::copy(nonce.begin(), nonce.end(), wire.begin());
+std::copy(encrypted.begin(), encrypted.end(),
+          wire.begin() + static_cast<std::ptrdiff_t>(nonce.size()));
+
+// Receiver: strip nonce + XOR-decrypt body in place.
+auto body = itb::wrapper::unwrap_in_place(
+    itb::wrapper::Cipher::Aes128Ctr,
+    outerKey.data(), outerKey.size(),
+    wire.data(), wire.size());
+std::vector<std::uint8_t> encrypted_r(body.first, body.first + body.second);
+
+auto decrypted = enc.decrypt_auth(encrypted_r);
 // decrypted holds the recovered plaintext bytes.
 ```
 
@@ -495,6 +643,20 @@ std::string plaintext = "any text or binary data - including 0x00 bytes";
 auto encrypted = itb::encrypt_auth(ns, ds, ss, mac, plaintext);
 std::cout << "encrypted: " << encrypted.size() << " bytes\n";
 
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
+
+// Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
+auto nonce = itb::wrapper::wrap_in_place(
+    itb::wrapper::Cipher::Aes128Ctr,
+    outerKey.data(), outerKey.size(),
+    encrypted.data(), encrypted.size());
+
+std::vector<std::uint8_t> wire(nonce.size() + encrypted.size());
+std::copy(nonce.begin(), nonce.end(), wire.begin());
+std::copy(encrypted.begin(), encrypted.end(),
+          wire.begin() + static_cast<std::ptrdiff_t>(nonce.size()));
+
 // Cross-process persistence: itb::Blob512 packs every seed's keys +
 // components, lockSeed, and MAC into one JSON blob.
 itb::Blob512 blob;
@@ -521,9 +683,18 @@ std::cout << "persistence blob: " << blob_bytes.size() << " bytes\n";
 
 itb::set_max_workers(8);   // deployment knob — not in Blob512
 
-// Receive encrypted payload + blob_bytes
-// std::vector<std::uint8_t> encrypted  = ...;
+// Receive on-wire blob + blob_bytes + outerKey (out-of-band).
+// std::vector<std::uint8_t> wire       = ...;
 // std::vector<std::uint8_t> blob_bytes = ...;
+// std::vector<std::uint8_t> outerKey   = ...;
+
+// Strip nonce + XOR-decrypt body in place; encrypted_r is a view over
+// the recovered ITB ciphertext bytes inside `wire`.
+auto body = itb::wrapper::unwrap_in_place(
+    itb::wrapper::Cipher::Aes128Ctr,
+    outerKey.data(), outerKey.size(),
+    wire.data(), wire.size());
+std::vector<std::uint8_t> encrypted(body.first, body.first + body.second);
 
 // import_blob restores per-slot keys + components and applies the
 // captured globals via the process-wide setters.
@@ -556,7 +727,7 @@ The push-pattern wrappers (`itb::StreamEncryptor` /
 `itb::StreamDecryptor` plus seven-seed `StreamEncryptorTriple` /
 `StreamDecryptorTriple`) and the free-function bridges
 (`itb::encrypt_stream` / `itb::decrypt_stream` plus Triple variants)
-wrap the one-shot encrypt / decrypt API behind a chunked I/O surface.
+wrap the Single Message Encrypt / Decrypt API behind a chunked I/O surface.
 ITB ciphertexts cap at ~64 MB plaintext per chunk; the binding slices
 larger inputs, encrypts each chunk through the regular FFI path, and
 concatenates the results. Memory peak is bounded by `chunk_size`
@@ -573,11 +744,15 @@ loop until EOF internally.
 
 ```cpp
 #include <itb.hpp>
+#include <itb/wrapper.hpp>
 #include <vector>
 
 itb::Seed n{"blake3", 1024};
 itb::Seed d{"blake3", 1024};
 itb::Seed s{"blake3", 1024};
+
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
 // Push-pattern: sink receives each ITB chunk. close() flushes the
 // trailing partial chunk; destructor best-effort-flushes on scope exit.
@@ -592,7 +767,27 @@ std::vector<std::uint8_t> sink;
     enc.write(std::string_view{"chunk two"});
     enc.close();
 }
-auto ciphertext = sink;
+
+// Format-deniability ITB masking via outer-cipher streaming wrapper (AES-128-CTR) - same ~0% overhead in stream mode (Recommended in every case).
+std::vector<std::uint8_t> wire;
+{
+    itb::wrapper::WrapStreamWriter ww{
+        itb::wrapper::Cipher::Aes128Ctr,
+        outerKey.data(), outerKey.size()};
+    wire.reserve(ww.nonce().size() + sink.size());
+    wire.insert(wire.end(), ww.nonce().begin(), ww.nonce().end());
+    auto wrapped = ww.update(sink.data(), sink.size());
+    wire.insert(wire.end(), wrapped.begin(), wrapped.end());
+}
+
+// Receiver: strip nonce, unwrap body, feed to decrypt.
+const std::size_t nlen =
+    itb::wrapper::nonce_size(itb::wrapper::Cipher::Aes128Ctr);
+itb::wrapper::UnwrapStreamReader ur{
+    itb::wrapper::Cipher::Aes128Ctr,
+    outerKey.data(), outerKey.size(),
+    wire.data(), nlen};
+auto ciphertext = ur.update(wire.data() + nlen, wire.size() - nlen);
 
 // Feed-pattern: feed ciphertext bytes at any granularity (partial
 // chunks buffered); sink receives each decrypted plaintext. close()
