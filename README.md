@@ -106,6 +106,59 @@ follows the standard dynamic-linker order:
    without `LD_LIBRARY_PATH`.
 3. System loader path (`ld.so.cache`, `DYLD_LIBRARY_PATH`, `PATH`).
 
+## Memory
+
+Two process-wide knobs constrain Go runtime arena pacing. Both readable at libitb load time via env vars:
+
+- `ITB_GOMEMLIMIT=512MiB` — soft memory limit in bytes; supports `B` / `KiB` / `MiB` / `GiB` / `TiB` suffixes.
+- `ITB_GOGC=20` — GC trigger percentage; default `100`, lower triggers GC more aggressively.
+
+Programmatic setters override env-set values at any time. Pass `-1` to either setter to query the current value without changing it.
+
+```cpp
+itb::set_memory_limit(512LL << 20);
+itb::set_gc_percent(20);
+```
+
+## Tests
+
+```bash
+cd bindings/cpp/
+make tests       # compile every tests/test_*.cpp into tests/build/test_*
+make test        # tests + run via run_tests.sh
+./run_tests.sh
+```
+
+The 41 test files cover Single + Triple round-trip across each PRF
+primitive, authenticated paths, mixed primitives, persistence and
+native blob round-trip, streaming chunked I/O, nonce-size variants,
+lockSeed lifecycle, closed-state preflight, empty-payload rejection,
+the typed exception hierarchy, and `last_mismatch_field()`. Each test
+compiles to a standalone executable under `tests/build/` linked
+against `build/libitb_c.a` + `libitb.so` + Catch2 v3. Per-process
+isolation gives every test a fresh libitb global state.
+
+Filter via `ITB_TEST_FILTER`, forwarded to Catch2's filter syntax:
+
+```bash
+ITB_TEST_FILTER='[blake3]' ./run_tests.sh
+```
+
+## Benchmarks
+
+Throughput numbers live in [`bench/BENCH.md`](bench/BENCH.md); see
+[`bench/README.md`](bench/README.md) for invocation, environment
+variables, and per-case output format. The harness covers four ops
+across the nine PRF-grade primitives plus one mixed variant for both
+Single and Triple at 1024-bit ITB key width and 16 MiB payload.
+Four-pass sweep:
+
+```bash
+cd bindings/cpp/
+make bench
+./run_bench.sh                  # full 4-pass canonical sweep
+```
+
 ## Streaming AEAD
 
 **Streaming AEAD** authenticates a chunked stream end-to-end while
@@ -149,7 +202,7 @@ auto make_writer = [](std::ofstream& out) {
 
 itb::Encryptor enc{"areion512", 1024, "hmac-blake3", 1};
 
-// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
 // Sender — collect the inner ITB stream in memory, then wrap the
@@ -257,7 +310,7 @@ itb::Seed start{"areion512", 1024};
 auto mac_key = csprng_mac_key();           // 32 bytes from /dev/urandom
 itb::Mac mac{"hmac-blake3", mac_key};
 
-// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
 {
@@ -364,7 +417,7 @@ std::string plaintext = "any text or binary data - including 0x00 bytes";
 std::vector<std::uint8_t> encrypted = enc.encrypt_auth(plaintext);
 std::cout << "encrypted: " << encrypted.size() << " bytes\n";
 
-// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
 // Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
@@ -504,7 +557,7 @@ auto blob = enc.export_state();
 std::string plaintext = "mixed-primitive Easy Mode payload";
 auto encrypted = enc.encrypt_auth(plaintext);
 
-// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
 // Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
@@ -565,7 +618,7 @@ std::string plaintext = "Triple Ouroboros payload";
 
 auto encrypted = enc.encrypt_auth(plaintext);
 
-// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
 // Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
@@ -643,7 +696,7 @@ std::string plaintext = "any text or binary data - including 0x00 bytes";
 auto encrypted = itb::encrypt_auth(ns, ds, ss, mac, plaintext);
 std::cout << "encrypted: " << encrypted.size() << " bytes\n";
 
-// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
 // Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
@@ -751,7 +804,7 @@ itb::Seed n{"blake3", 1024};
 itb::Seed d{"blake3", 1024};
 itb::Seed s{"blake3", 1024};
 
-// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB inner PRF + seeds keep CSPRNG-fresh randomness per call.
+// Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
 // Push-pattern: sink receives each ITB chunk. close() flushes the
@@ -858,6 +911,18 @@ shared `noiseSeed`, three `dataSeed`, three `startSeed`) via the
 
 All seeds in one call must share the same native hash width; mixing
 widths throws `ItbError(STATUS_SEED_WIDTH_MIX)`.
+
+## MAC primitives
+
+Names match the libitb MAC registry; ordering matches that registry's declaration order.
+
+| MAC | Key bytes | Tag bytes | Underlying primitive |
+|---|---|---|---|
+| `kmac256` | 32 | 32 | KMAC256 (Keccak-derived) |
+| `hmac-sha256` | 32 | 32 | HMAC over SHA-256 |
+| `hmac-blake3` | 32 | 32 | HMAC over BLAKE3 |
+
+`kmac256` and `hmac-sha256` accept keys 16 bytes and longer; the binding fleet's tests and examples use 32 bytes uniformly across primitives for cross-binding consistency. `hmac-blake3` requires exactly 32 bytes by construction.
 
 ## Threading model
 
@@ -1037,63 +1102,6 @@ caught as their typed subclass. Cold-path codes (programmer errors,
 malformed input, internal sentinels) are usually caught generically as
 `ItbError`.
 
-## API overview
-
-| Header | Public surface |
-|---|---|
-| `<itb.hpp>` | Meta-header — pulls in every wrapper below |
-| `<itb/errors.hpp>` | `ItbError` base + four typed subclasses; `itb::status::*`; `last_error()` / `last_mismatch_field()` |
-| `<itb/library.hpp>` | Process-wide setters / getters, `list_hashes` / `list_macs`, `version()`, `header_size()`, `parse_chunk_len()` |
-| `<itb/seed.hpp>` | `itb::Seed` — RAII over `itb_seed_t`; CSPRNG and `from_components` constructors; `width()` / `hash_key()` / `components()` / `attach_lock_seed()` |
-| `<itb/mac.hpp>` | `itb::Mac` — RAII over `itb_mac_t`; `(name, key)` constructor |
-| `<itb/cipher.hpp>` | Free-function low-level entry points — `encrypt` / `decrypt` / `encrypt_auth` / `decrypt_auth` plus Triple counterparts |
-| `<itb/encryptor.hpp>` | `itb::Encryptor` — Easy Mode RAII; single-primitive constructor + `Mixed` / `Mixed3`; cipher methods, per-instance setters, persistence; `peek_config` |
-| `<itb/streams.hpp>` | `StreamEncryptor` / `StreamDecryptor` push + Triple variants; free-function bridges `encrypt_stream` / `decrypt_stream`; `kDefaultChunkSize` |
-| `<itb/blob.hpp>` | `Blob128` / `Blob256` / `Blob512` Native Blob wrappers; `blob::Slot` / `blob::Opt` |
-
-All public types live in the top-level `itb::` namespace; helpers
-between headers live in `itb::detail::`. The `itb::status::*` constants
-and the `itb::blob::Slot` / `itb::blob::Opt` enums are namespaced for
-collision-free use. Hash names via `itb::list_hashes()`; MAC names
-(`kmac256`, `hmac-sha256`, `hmac-blake3`) via `itb::list_macs()`.
-
-## Tests
-
-```bash
-make tests       # compile every tests/test_*.cpp into tests/build/test_*
-make test        # tests + run via run_tests.sh
-./run_tests.sh   # discover + run every binary in tests/build/
-```
-
-The 41 test files cover Single + Triple round-trip across each PRF
-primitive, authenticated paths, mixed primitives, persistence and
-native blob round-trip, streaming chunked I/O, nonce-size variants,
-lockSeed lifecycle, closed-state preflight, empty-payload rejection,
-the typed exception hierarchy, and `last_mismatch_field()`. Each test
-compiles to a standalone executable under `tests/build/` linked
-against `build/libitb_c.a` + `libitb.so` + Catch2 v3. Per-process
-isolation gives every test a fresh libitb global state.
-
-Filter via `ITB_TEST_FILTER`, forwarded to Catch2's filter syntax:
-
-```bash
-ITB_TEST_FILTER='[blake3]' ./run_tests.sh
-```
-
-## Bench
-
-Throughput numbers live in [`bench/BENCH.md`](bench/BENCH.md); see
-[`bench/README.md`](bench/README.md) for invocation, environment
-variables, and per-case output format. The harness covers four ops
-across the nine PRF-grade primitives plus one mixed variant for both
-Single and Triple at 1024-bit ITB key width and 16 MiB payload.
-Four-pass sweep:
-
-```bash
-make bench
-./run_bench.sh                  # full 4-pass canonical sweep
-```
-
 ## Constraints
 
 - **C++17 minimum.** Headers use `std::string_view`, `std::optional`,
@@ -1113,3 +1121,35 @@ make bench
 - **No `dlopen`.** Symbols are bound at link time. Consumers wanting
   runtime FFI loading can wrap this binding in their own `dlopen`
   shim.
+
+## API Overview
+
+| Header | Public surface |
+|---|---|
+| `<itb.hpp>` | Meta-header — pulls in every wrapper below |
+| `<itb/errors.hpp>` | `ItbError` base + four typed subclasses; `itb::status::*`; `last_error()` / `last_mismatch_field()` |
+| `<itb/library.hpp>` | Process-wide setters / getters, `list_hashes` / `list_macs`, `version()`, `header_size()`, `parse_chunk_len()` |
+| `<itb/seed.hpp>` | `itb::Seed` — RAII over `itb_seed_t`; CSPRNG and `from_components` constructors; `width()` / `hash_key()` / `components()` / `attach_lock_seed()` |
+| `<itb/mac.hpp>` | `itb::Mac` — RAII over `itb_mac_t`; `(name, key)` constructor |
+| `<itb/cipher.hpp>` | Free-function low-level entry points — `encrypt` / `decrypt` / `encrypt_auth` / `decrypt_auth` plus Triple counterparts |
+| `<itb/encryptor.hpp>` | `itb::Encryptor` — Easy Mode RAII; single-primitive constructor + `Mixed` / `Mixed3`; cipher methods, per-instance setters, persistence; `peek_config` |
+| `<itb/streams.hpp>` | `StreamEncryptor` / `StreamDecryptor` push + Triple variants; free-function bridges `encrypt_stream` / `decrypt_stream`; `kDefaultChunkSize` |
+| `<itb/blob.hpp>` | `Blob128` / `Blob256` / `Blob512` Native Blob wrappers; `blob::Slot` / `blob::Opt` |
+
+All public types live in the top-level `itb::` namespace; helpers
+between headers live in `itb::detail::`. The `itb::status::*` constants
+and the `itb::blob::Slot` / `itb::blob::Opt` enums are namespaced for
+collision-free use. Hash names via `itb::list_hashes()`; MAC names
+(`kmac256`, `hmac-sha256`, `hmac-blake3`) via `itb::list_macs()`.
+
+### Go runtime tuning setters
+
+Two additional process-wide setters from `<itb/library.hpp>` configure
+the Go runtime inside libitb. Both functions return the previous value
+and accept a negative argument as a "query only, do not change"
+sentinel.
+
+| Function | Purpose |
+|---|---|
+| `std::int64_t itb::set_memory_limit(std::int64_t limit)` | Sets the Go runtime heap soft limit in bytes. Overrides the `ITB_GOMEMLIMIT` env var sourced at library load. |
+| `int itb::set_gc_percent(int pct)` | Sets the Go GC trigger percentage (default 100). Overrides the `ITB_GOGC` env var sourced at library load. |
