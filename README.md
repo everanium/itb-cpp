@@ -218,7 +218,7 @@ auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
         },
         kChunkSize);
 
-    // Format-deniability ITB masking via outer-cipher streaming wrapper (AES-128-CTR) - same ~0% overhead in stream mode (Recommended in every case).
+    // Format-deniability ITB masking via outer-cipher wrapper (AES-128-CTR) ~0% overhead (Recommended in every case).
     itb::wrapper::WrapStreamWriter ww{
         itb::wrapper::Cipher::Aes128Ctr,
         outerKey.data(), outerKey.size()};
@@ -324,7 +324,7 @@ auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
         },
         kChunkSize);
 
-    // Format-deniability ITB masking via outer-cipher streaming wrapper (AES-128-CTR) - same ~0% overhead in stream mode (Recommended in every case).
+    // Format-deniability ITB masking via outer-cipher wrapper (AES-128-CTR) ~0% overhead (Recommended in every case).
     itb::wrapper::WrapStreamWriter ww{
         itb::wrapper::Cipher::Aes128Ctr,
         outerKey.data(), outerKey.size()};
@@ -420,7 +420,7 @@ std::cout << "encrypted: " << encrypted.size() << " bytes\n";
 // Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
-// Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
+// Format-deniability ITB masking via outer-cipher wrapper (AES-128-CTR) ~0% overhead (Recommended in every case).
 auto nonce = itb::wrapper::wrap_in_place(
     itb::wrapper::Cipher::Aes128Ctr,
     outerKey.data(), outerKey.size(),
@@ -560,7 +560,7 @@ auto encrypted = enc.encrypt_auth(plaintext);
 // Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
-// Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
+// Format-deniability ITB masking via outer-cipher wrapper (AES-128-CTR) ~0% overhead (Recommended in every case).
 auto nonce = itb::wrapper::wrap_in_place(
     itb::wrapper::Cipher::Aes128Ctr,
     outerKey.data(), outerKey.size(),
@@ -621,7 +621,7 @@ auto encrypted = enc.encrypt_auth(plaintext);
 // Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
-// Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
+// Format-deniability ITB masking via outer-cipher wrapper (AES-128-CTR) ~0% overhead (Recommended in every case).
 auto nonce = itb::wrapper::wrap_in_place(
     itb::wrapper::Cipher::Aes128Ctr,
     outerKey.data(), outerKey.size(),
@@ -699,7 +699,7 @@ std::cout << "encrypted: " << encrypted.size() << " bytes\n";
 // Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
 
-// Format-deniability ITB masking through outer cipher AES-128-CTR with ~0% overhead over ITB Encrypt / Decrypt (Recommended in every case).
+// Format-deniability ITB masking via outer-cipher wrapper (AES-128-CTR) ~0% overhead (Recommended in every case).
 auto nonce = itb::wrapper::wrap_in_place(
     itb::wrapper::Cipher::Aes128Ctr,
     outerKey.data(), outerKey.size(),
@@ -821,7 +821,7 @@ std::vector<std::uint8_t> sink;
     enc.close();
 }
 
-// Format-deniability ITB masking via outer-cipher streaming wrapper (AES-128-CTR) - same ~0% overhead in stream mode (Recommended in every case).
+// Format-deniability ITB masking via outer-cipher wrapper (AES-128-CTR) ~0% overhead (Recommended in every case).
 std::vector<std::uint8_t> wire;
 {
     itb::wrapper::WrapStreamWriter ww{
