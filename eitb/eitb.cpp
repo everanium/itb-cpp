@@ -1,6 +1,6 @@
 // eitb.cpp — wrapper × ITB matrix runner for the C++ binding.
 //
-// Mirrors cmd/eitb/main.go in the root repository, adapted for the
+// Mirrors tools/eitb/main.go in the root repository, adapted for the
 // C++ binding's asymmetry: there is no Streaming No MAC IO-Driven
 // example (`noaead-easy-io` / `noaead-lowlevel-io` from the Go
 // matrix) because the C++ binding does not expose a `std::ostream`
@@ -118,7 +118,7 @@ struct RunResult {
 
 // ----- Encryptor / seed factories -----------------------------------
 
-// Note. The Go-side cmd/eitb sets NonceBits=512 across the matrix.
+// Note. The Go-side tools/eitb sets NonceBits=512 across the matrix.
 // The C / C++ binding's streams.cpp maintains a fixed 64-byte hdr_buf
 // for the chunk-header parser; with NonceBits=512 a chunk header is
 // 64+4 = 68 bytes, exceeding that buffer. The C++ binding's eitb
@@ -425,7 +425,7 @@ RunResult run_noaead_lowlevel_userloop(itb::wrapper::Cipher cipher,
 
 // ----- 5. message-easy-nomac ----------------------------------------
 //
-// Default eitb path mirrors cmd/eitb/main.go: wrap_in_place (mutates
+// Default eitb path mirrors tools/eitb/main.go: wrap_in_place (mutates
 // the ciphertext buffer in place) + unwrap_in_place. The commented
 // `wrap` / `unwrap` alternatives respect immutability of `encrypted` /
 // `wire` at the cost of an extra allocation per call.
