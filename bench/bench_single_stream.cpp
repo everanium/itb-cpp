@@ -24,8 +24,7 @@
 //
 // UserLoop -- Plain Streaming via caller-side per-chunk loop; framing
 //             convention is a 4-byte big-endian ciphertext-length
-//             prefix preceding each chunk's ciphertext bytes (matching
-//             the canonical pattern in tmp/cpp.example.md). Easy uses
+//             prefix preceding each chunk's ciphertext bytes. Easy uses
 //             Encryptor::encrypt / decrypt; Low-Level uses
 //             itb::encrypt / itb::decrypt free functions.
 //
@@ -62,8 +61,7 @@ constexpr std::size_t kStreamTotalBytes =
 constexpr std::size_t kStreamChunkBytes =
     static_cast<std::size_t>(16) << 20;
 
-// Fixed 32-byte MAC key — matches the canonical .NEXTBIND.md /
-// .MACSTREAM.md MAC-key length and itb::Mac's 32-byte hmac-blake3
+// Fixed 32-byte MAC key matches itb::Mac's 32-byte hmac-blake3
 // requirement. Value contents are immaterial for throughput
 // measurement; the MAC executes in O(MAC-key-length) per absorb
 // regardless of byte distribution.
