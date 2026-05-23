@@ -59,7 +59,7 @@ constexpr itb::wrapper::Cipher kCiphers[] = {
     itb::wrapper::Cipher::ChaCha20,
     itb::wrapper::Cipher::SipHash24,
 };
-constexpr const char* kCipherNames[] = { "aes", "chacha", "siphash" };
+constexpr const char* kCipherNames[] = { "aescmac", "chacha20", "siphash24" };
 constexpr std::size_t kCipherCount = 3;
 
 constexpr std::size_t kWrapperPayloadBytes = bench::kPayload16MB;

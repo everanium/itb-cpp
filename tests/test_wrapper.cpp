@@ -33,6 +33,7 @@
 #include <itb/wrapper.hpp>
 
 #include <cstdint>
+#include <random>
 #include <utility>
 #include <vector>
 
@@ -61,9 +62,9 @@ constexpr std::size_t kExpectedNonce[] = { 16, 12, 16 };
 
 TEST_CASE("wrapper::ffi_name interns canonical short names",
           "[wrapper][ffi_name]") {
-    REQUIRE(itb::wrapper::ffi_name(itb::wrapper::Cipher::Aes128Ctr) == "aes");
-    REQUIRE(itb::wrapper::ffi_name(itb::wrapper::Cipher::ChaCha20)  == "chacha");
-    REQUIRE(itb::wrapper::ffi_name(itb::wrapper::Cipher::SipHash24) == "siphash");
+    REQUIRE(itb::wrapper::ffi_name(itb::wrapper::Cipher::Aes128Ctr) == "aescmac");
+    REQUIRE(itb::wrapper::ffi_name(itb::wrapper::Cipher::ChaCha20)  == "chacha20");
+    REQUIRE(itb::wrapper::ffi_name(itb::wrapper::Cipher::SipHash24) == "siphash24");
     // Out-of-range → empty view.
     auto bad = itb::wrapper::ffi_name(static_cast<itb::wrapper::Cipher>(99));
     REQUIRE(bad.empty());
@@ -264,6 +265,38 @@ TEST_CASE("wrapper::generate_key returns a buffer that drives a round-trip",
                                        blob.data(), blob.size());
         auto recovered = itb::wrapper::unwrap(cipher,
                                               key.data(), key.size(),
+                                              wire.data(), wire.size());
+        REQUIRE(recovered == blob);
+    }
+}
+
+TEST_CASE("wrapper::derive_key is deterministic and drives a round-trip",
+          "[wrapper][derive_key]") {
+    // 32 random bytes as the master secret (stand-in for an ML-KEM
+    // shared secret; the binding ships no KEM).
+    std::vector<std::uint8_t> master(32);
+    std::random_device rd;
+    for (auto& b : master) {
+        b = static_cast<std::uint8_t>(rd() & 0xFFu);
+    }
+
+    for (auto cipher : kAllCiphers) {
+        auto key1 = itb::wrapper::derive_key(cipher,
+                                             master.data(), master.size());
+        REQUIRE(key1.size() == itb::wrapper::key_size(cipher));
+
+        // Determinism: same (cipher, master) yields the same key.
+        auto key2 = itb::wrapper::derive_key(cipher,
+                                             master.data(), master.size());
+        REQUIRE(key1 == key2);
+
+        // The derived key round-trips through wrap / unwrap.
+        auto blob = fill_pattern(kBlobLen);
+        auto wire = itb::wrapper::wrap(cipher,
+                                       key1.data(), key1.size(),
+                                       blob.data(), blob.size());
+        auto recovered = itb::wrapper::unwrap(cipher,
+                                              key1.data(), key1.size(),
                                               wire.data(), wire.size());
         REQUIRE(recovered == blob);
     }

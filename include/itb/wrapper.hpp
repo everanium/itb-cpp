@@ -18,7 +18,7 @@
 //   - `itb::wrapper::Cipher` — strongly-typed enum class selector
 //     mapping to the C-binding's `itb_wrapper_cipher_t`.
 //   - `itb::wrapper::ffi_name(Cipher)` — interned canonical short
-//     name (`"aes"` / `"chacha"` / `"siphash"`).
+//     name (`"aescmac"` / `"chacha20"` / `"siphash24"`).
 //   - `itb::wrapper::key_size(Cipher)` / `nonce_size(Cipher)` — byte
 //     lengths of the outer cipher's key / on-wire nonce.
 //   - `itb::wrapper::generate_key(Cipher)` — fresh CSPRNG outer key.
@@ -97,7 +97,7 @@ enum class Cipher : int {
 };
 
 // Returns the canonical short name of the named outer cipher
-// (`"aes"` / `"chacha"` / `"siphash"`) as a non-owning view over the
+// (`"aescmac"` / `"chacha20"` / `"siphash24"`) as a non-owning view over the
 // process-lifetime interned C string. The view stays valid for the
 // life of the process; callers MUST NOT free the underlying buffer.
 inline std::string_view ffi_name(Cipher cipher) noexcept {
@@ -140,6 +140,30 @@ inline std::vector<std::uint8_t> generate_key(Cipher cipher) {
     std::size_t len = 0;
     detail::check(itb_wrapper_generate_key(
         static_cast<itb_wrapper_cipher_t>(cipher), &buf, &len));
+    std::vector<std::uint8_t> out(buf, buf + len);
+    itb_buffer_free(buf);
+    return out;
+}
+
+// Deterministically derives the outer cipher key for `cipher` from a
+// caller-supplied master secret (e.g. an ML-KEM shared secret). The
+// result is a deterministic function of `(cipher, master)`, so both
+// endpoints derive the same key from a shared master. `master` must be
+// at least `key_size(cipher)` bytes; the returned buffer has length
+// `key_size(cipher)`.
+//
+// On failure (unknown cipher, too-short master) throws `ItbError`
+// carrying the libitb last-error message.
+inline std::vector<std::uint8_t> derive_key(Cipher cipher,
+                                            const std::uint8_t* master,
+                                            std::size_t master_len) {
+    std::uint8_t* buf = nullptr;
+    std::size_t len = 0;
+    const std::uint8_t* master_ptr = (master_len == 0) ? nullptr : master;
+    detail::check(itb_wrapper_derive_key(
+        static_cast<itb_wrapper_cipher_t>(cipher),
+        master_ptr, master_len,
+        &buf, &len));
     std::vector<std::uint8_t> out(buf, buf + len);
     itb_buffer_free(buf);
     return out;
