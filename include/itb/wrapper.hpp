@@ -85,7 +85,7 @@ namespace wrapper {
 
 // ---- Cipher selector ---------------------------------------------
 
-// Strongly-typed enum class enumerating the three supported outer
+// Strongly-typed enum class enumerating the nine supported outer
 // keystream ciphers. Underlying integer values match the
 // `itb_wrapper_cipher_t` enum in the C binding (and in turn match
 // `wrapper.CipherNames` in the Go-side wrapper package), so a static
@@ -94,12 +94,20 @@ enum class Cipher : int {
     Aes128Ctr  = ITB_WRAPPER_CIPHER_AES_128_CTR,
     ChaCha20   = ITB_WRAPPER_CIPHER_CHACHA20,
     SipHash24  = ITB_WRAPPER_CIPHER_SIPHASH24,
+    Areion256  = ITB_WRAPPER_CIPHER_AREION_256,
+    Areion512  = ITB_WRAPPER_CIPHER_AREION_512,
+    Blake2b256 = ITB_WRAPPER_CIPHER_BLAKE2B_256,
+    Blake2b512 = ITB_WRAPPER_CIPHER_BLAKE2B_512,
+    Blake2s    = ITB_WRAPPER_CIPHER_BLAKE2S,
+    Blake3     = ITB_WRAPPER_CIPHER_BLAKE3,
 };
 
 // Returns the canonical short name of the named outer cipher
-// (`"aescmac"` / `"chacha20"` / `"siphash24"`) as a non-owning view over the
-// process-lifetime interned C string. The view stays valid for the
-// life of the process; callers MUST NOT free the underlying buffer.
+// (`"aescmac"` / `"chacha20"` / `"siphash24"` / `"areion256"` /
+// `"areion512"` / `"blake2b256"` / `"blake2b512"` / `"blake2s"` /
+// `"blake3"`) as a non-owning view over the process-lifetime interned C
+// string. The view stays valid for the life of the process; callers
+// MUST NOT free the underlying buffer.
 inline std::string_view ffi_name(Cipher cipher) noexcept {
     const char* p = itb_wrapper_cipher_name(
         static_cast<itb_wrapper_cipher_t>(cipher));
@@ -110,8 +118,10 @@ inline std::string_view ffi_name(Cipher cipher) noexcept {
 }
 
 // Returns the byte length of the keystream-cipher key for the named
-// outer cipher: 16 for AES-128-CTR / SipHash-CTR; 32 for ChaCha20.
-// Throws `ItbError(STATUS_BAD_INPUT)` on an unknown cipher value.
+// outer cipher: 16 for AES-128-CTR / SipHash-CTR; 32 for ChaCha20 /
+// Areion-SoEM-256 / BLAKE2b-256 / BLAKE2b-512 / BLAKE2s / BLAKE3; 64 for
+// Areion-SoEM-512. Throws `ItbError(STATUS_BAD_INPUT)` on an unknown
+// cipher value.
 inline std::size_t key_size(Cipher cipher) {
     std::size_t out = 0;
     detail::check(itb_wrapper_key_size(
@@ -120,8 +130,10 @@ inline std::size_t key_size(Cipher cipher) {
 }
 
 // Returns the on-wire nonce length the named outer cipher emits per
-// stream: 16 for AES-128-CTR / SipHash-CTR; 12 for ChaCha20. Throws
-// `ItbError(STATUS_BAD_INPUT)` on an unknown cipher value.
+// stream: 12 for ChaCha20; 16 for every other outer cipher (AES-128-CTR /
+// SipHash-CTR / Areion-SoEM-256 / Areion-SoEM-512 / BLAKE2b-256 /
+// BLAKE2b-512 / BLAKE2s / BLAKE3). Throws `ItbError(STATUS_BAD_INPUT)`
+// on an unknown cipher value.
 inline std::size_t nonce_size(Cipher cipher) {
     std::size_t out = 0;
     detail::check(itb_wrapper_nonce_size(
@@ -149,8 +161,8 @@ inline std::vector<std::uint8_t> generate_key(Cipher cipher) {
 // caller-supplied master secret (e.g. an ML-KEM shared secret). The
 // result is a deterministic function of `(cipher, master)`, so both
 // endpoints derive the same key from a shared master. `master` must be
-// at least `key_size(cipher)` bytes; the returned buffer has length
-// `key_size(cipher)`.
+// at least 32 bytes (the wrapper's uniform security floor); the returned
+// buffer has length `key_size(cipher)`.
 //
 // On failure (unknown cipher, too-short master) throws `ItbError`
 // carrying the libitb last-error message.

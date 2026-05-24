@@ -1166,3 +1166,19 @@ sentinel.
 |---|---|
 | `std::int64_t itb::set_memory_limit(std::int64_t limit)` | Sets the Go runtime heap soft limit in bytes. Overrides the `ITB_GOMEMLIMIT` env var sourced at library load. |
 | `int itb::set_gc_percent(int pct)` | Sets the Go GC trigger percentage (default 100). Overrides the `ITB_GOGC` env var sourced at library load. |
+
+### Wrapper (`itb::wrapper`)
+
+Header-only RAII surface in `<itb/wrapper.hpp>`.
+
+| Symbol | Purpose |
+|---|---|
+| `wrapper::Cipher::Aes128Ctr / ChaCha20 / SipHash24 / Areion256 / Areion512 / Blake2b256 / Blake2b512 / Blake2s / Blake3` | Cipher enum |
+| `wrapper::ffi_name(cipher)` | Canonical cipher name |
+| `wrapper::key_size(cipher) / wrapper::nonce_size(cipher)` | Cipher dimension accessors |
+| `wrapper::generate_key(cipher) -> std::vector<std::uint8_t>` | CSPRNG-fresh wrapper key |
+| `wrapper::derive_key(cipher, master, master_len) -> std::vector<std::uint8_t>` | Deterministic wrapper key from a master secret (>= 32 bytes, e.g. an ML-KEM shared secret) |
+| `wrapper::wrap(cipher, key, key_len, blob, blob_len)` / `wrapper::unwrap(cipher, key, key_len, wire, wire_len)` | Single Message Wrap / Unwrap |
+| `wrapper::wrap_in_place(cipher, key, key_len, blob, blob_len)` / `wrapper::unwrap_in_place(cipher, key, key_len, wire, wire_len)` | In-place Wrap / Unwrap |
+| `wrapper::WrapStreamWriter(cipher, key, key_len)` / `wrapper::UnwrapStreamReader(cipher, key, key_len, wire_nonce, wire_nonce_len)` | Streaming wrap writer / unwrap reader |
+| `ItbError` (with `STATUS_BAD_INPUT` / `STATUS_BAD_HANDLE`) | Typed errors |

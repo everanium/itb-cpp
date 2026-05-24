@@ -65,12 +65,18 @@ constexpr std::size_t kSingleMessageBytes = 1024;
 constexpr std::size_t kStreamBytes        = 64 * 1024;
 constexpr std::size_t kStreamChunkSize    = 16 * 1024;
 
-// Cipher list mirrored from include/itb/wrapper.hpp enum order;
-// matches wrapper.CipherNames in the Go-side wrapper package.
+// Cipher list in the canonical project primitive order; matches
+// wrapper.CipherNames in the Go-side wrapper package.
 constexpr itb::wrapper::Cipher kCiphers[] = {
-    itb::wrapper::Cipher::Aes128Ctr,
-    itb::wrapper::Cipher::ChaCha20,
+    itb::wrapper::Cipher::Areion256,
+    itb::wrapper::Cipher::Areion512,
     itb::wrapper::Cipher::SipHash24,
+    itb::wrapper::Cipher::Aes128Ctr,
+    itb::wrapper::Cipher::Blake2b256,
+    itb::wrapper::Cipher::Blake2b512,
+    itb::wrapper::Cipher::Blake2s,
+    itb::wrapper::Cipher::Blake3,
+    itb::wrapper::Cipher::ChaCha20,
 };
 
 std::string hex_short(const std::uint8_t* digest) {
