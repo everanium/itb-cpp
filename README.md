@@ -406,11 +406,9 @@ enc.set_bit_soup(1);        // bit-level split ("bit-soup"; default: 0 = byte-le
 enc.set_lock_soup(1);       // Insane Interlocked Mode: per-chunk PRF-keyed
                             // bit-permutation overlay on top of bit-soup
                             // (auto-couples with bit_soup for Single)
-enc.set_lock_batch(1);      // Lock Batch is the performance Lock Soup mode: recommended
-                            // in every case when the configured hash is PRF-grade, since
-                            // security is preserved under the PRF assumption while
-                            // throughput rises. Symmetric option — set identically on
-                            // the encrypt and decrypt sides.
+enc.set_lock_batch(1);      // Recommended under the PRF assumption,
+                            // the performance Lock Soup mode.
+                            // Symmetric, set on both sides.
 
 // enc.set_lock_seed(1);    // optional dedicated lockSeed — separates
                             // bit-permutation PRF keying from the
@@ -486,7 +484,9 @@ dec.set_nonce_bits(512);
 dec.set_barrier_fill(4);
 dec.set_bit_soup(1);
 dec.set_lock_soup(1);
-dec.set_lock_batch(1);      // Recommended under the PRF assumption — the performance Lock Soup mode; symmetric, set on both sides.
+dec.set_lock_batch(1);      // Recommended under the PRF assumption,
+                            // the performance Lock Soup mode.
+                            // Symmetric, set on both sides.
 // dec.set_lock_seed(1);   // optional — import below restores it from the blob.
 
 dec.import_state(blob);
@@ -686,11 +686,9 @@ itb::set_barrier_fill(4);    // default: 1, valid: 1, 2, 4, 8, 16, 32
 itb::set_bit_soup(1);        // bit-level split ("bit-soup"; default: 0)
 itb::set_lock_soup(1);       // per-chunk PRF-keyed bit-permutation overlay
                              // (auto-couples with bit_soup for Single)
-itb::set_lock_batch(1);      // Lock Batch is the performance Lock Soup mode: recommended
-                             // in every case when the configured hash is PRF-grade, since
-                             // security is preserved under the PRF assumption while
-                             // throughput rises. Symmetric option — set identically on
-                             // the encrypt and decrypt sides.
+itb::set_lock_batch(1);      // Recommended under the PRF assumption,
+                             // the performance Lock Soup mode.
+                             // Symmetric, set on both sides.
 
 // Three independent CSPRNG-keyed Areion-SoEM-512 seeds. Each Seed
 // pre-keys its primitive once at construction.
