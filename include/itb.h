@@ -37,9 +37,7 @@
  *     itb_seed_free(d);
  *     itb_seed_free(s);
  *
- * Hash names match the canonical FFI registry (see hashes/registry.go):
- * "areion256", "areion512", "siphash24", "aescmac", "blake2b256",
- * "blake2b512", "blake2s", "blake3", "chacha20".
+ * Hash names match the canonical FFI registry (see hashes/registry.go).
  *
  * MAC names: "kmac256", "hmac-sha256", "hmac-blake3".
  *
@@ -257,6 +255,8 @@ itb_status_t itb_set_bit_soup(int mode);
 int          itb_get_bit_soup(void);
 itb_status_t itb_set_lock_soup(int mode);
 int          itb_get_lock_soup(void);
+itb_status_t itb_set_lock_batch(int mode);
+int          itb_get_lock_batch(void);
 itb_status_t itb_set_max_workers(int n);
 int          itb_get_max_workers(void);
 
@@ -292,9 +292,8 @@ int itb_set_gc_percent(int pct);
 /*
  * Constructs a fresh seed with CSPRNG-generated keying material.
  *
- * `hash_name` is a canonical hash name from itb_hash_name() (e.g.
- * "blake3", "areion256"). `key_bits` is the ITB key width in bits —
- * 512, 1024, or 2048 (multiple of 64).
+ * `hash_name` is a canonical hash name from itb_hash_name().
+ * `key_bits` is the ITB key width in bits — * 512, 1024, or 2048.
  *
  * On success, *out is populated with a freshly-constructed seed handle
  * which the caller must free with itb_seed_free(). On failure, *out is
@@ -309,11 +308,9 @@ itb_status_t itb_seed_new(const char *hash_name, int key_bits,
  * components and an optional fixed hash key.
  *
  * `components_len` is in 8..=32 (multiple of 8). `hash_key_len`, when
- * non-zero, must match the primitive's native fixed-key size: 16 for
- * "aescmac"; 32 for "areion256" / "blake2{s,b256}" / "blake3" /
- * "chacha20"; 64 for "areion512" / "blake2b512". Pass `hash_key=NULL,
- * hash_key_len=0` for "siphash24" (no internal fixed key) or to request
- * a CSPRNG-generated key (only the components fix).
+ * non-zero, must match the primitive's native fixed-key size: 16 / 32 / 64.
+ * Pass `hash_key=NULL, hash_key_len=0` for "siphash24" (no internal fixed key)
+ * or to request a CSPRNG-generated key (only the components fix).
  */
 itb_status_t itb_seed_from_components(const char *hash_name,
                                       const uint64_t *components,
@@ -592,8 +589,8 @@ typedef struct itb_encryptor itb_encryptor_t;
 /*
  * Constructs a fresh encryptor.
  *
- * `primitive` is a canonical hash name from itb_hash_name() (e.g.
- * "blake3", "areion512"). NULL selects the libitb default ("areion512").
+ * `primitive` is a canonical hash name from itb_hash_name().
+ *  NULL selects the libitb default ("areion512").
  *
  * `key_bits` is the ITB key width in bits (512, 1024, 2048; multiple of
  * the primitive's native hash width). `0` selects the libitb default
@@ -744,6 +741,10 @@ itb_status_t itb_encryptor_set_bit_soup(itb_encryptor_t *e, int mode);
  * this encryptor (always, both modes — Lock Soup layers on top of
  * bit soup). */
 itb_status_t itb_encryptor_set_lock_soup(itb_encryptor_t *e, int mode);
+
+/* `0` = off (default); non-zero = on. Per-chunk PRF batching for the
+ * Lock Soup overlay; inert unless Lock Soup is engaged. */
+itb_status_t itb_encryptor_set_lock_batch(itb_encryptor_t *e, int mode);
 
 /* `0` = off; `1` = on (allocates a dedicated lockSeed and routes the
  * bit-permutation overlay through it; auto-couples LockSoup=1 +
@@ -1331,8 +1332,7 @@ itb_status_t itb_encryptor_stream_decrypt_auth(itb_encryptor_t *e,
 /*
  * Outer keystream-cipher envelope that hides the on-wire ITB byte
  * pattern (per-chunk header / 32-byte streamID prefix / container
- * layout) under one of three generic stream ciphers — AES-128-CTR,
- * ChaCha20 (RFC8439), or SipHash-2-4 in CTR mode. Wire format is
+ * layout) under one of generic stream ciphers. Wire format is
  * `nonce || keystream-XOR(bytestream)`, indistinguishable from any
  * generic stream-cipher payload by surface pattern. ITB's content-
  * deniability is unchanged; the AEAD path's integrity is unchanged.
@@ -1348,7 +1348,7 @@ itb_status_t itb_encryptor_stream_decrypt_auth(itb_encryptor_t *e,
  *      single-message Encrypt / EncryptAuth output. Wire =
  *      `nonce || keystream-XOR(blob)`.
  *
- *      itb_wrap_in_place / itb_unwrap_in_place are zero-allocation
+ *      itb_wrap_in_place / itb_unwrap_in_place are no-output-buffer-allocation
  *      variants that XOR the caller's blob / wire buffer in place.
  *      Suitable for hot paths where the caller has just produced an
  *      ITB ciphertext and will not re-read it.
@@ -1367,8 +1367,8 @@ itb_status_t itb_encryptor_stream_decrypt_auth(itb_encryptor_t *e,
  *      the framing bytes pass through the keystream XOR alongside the
  *      ITB ciphertext bodies).
  *
- * Outer-cipher key sizes (16 / 32 / 16 bytes) and nonce sizes (16 /
- * 12 / 16 bytes) match the libitb wrapper Go-side wrapper.KeySize
+ * Outer-cipher key sizes (16 / 32 / 64 bytes) and nonce sizes
+ * (12 bytes / 16 bytes) match the libitb wrapper Go-side wrapper.KeySize
  * and wrapper.NonceSize. The outer key MAY be reused across many
  * streams provided each stream uses a fresh CSPRNG nonce — this is
  * the standard CTR mode safety contract; the helpers always generate
@@ -1392,32 +1392,28 @@ itb_status_t itb_encryptor_stream_decrypt_auth(itb_encryptor_t *e,
  * Go-side wrapper package).
  */
 typedef enum itb_wrapper_cipher {
-    ITB_WRAPPER_CIPHER_AES_128_CTR = 0,
-    ITB_WRAPPER_CIPHER_CHACHA20    = 1,
-    ITB_WRAPPER_CIPHER_SIPHASH24   = 2,
-    ITB_WRAPPER_CIPHER_AREION_256  = 3,
-    ITB_WRAPPER_CIPHER_AREION_512  = 4,
-    ITB_WRAPPER_CIPHER_BLAKE2B_256 = 5,
-    ITB_WRAPPER_CIPHER_BLAKE2B_512 = 6,
-    ITB_WRAPPER_CIPHER_BLAKE2S     = 7,
-    ITB_WRAPPER_CIPHER_BLAKE3      = 8
+    ITB_WRAPPER_CIPHER_AREION_256  = 0,
+    ITB_WRAPPER_CIPHER_AREION_512  = 1,
+    ITB_WRAPPER_CIPHER_BLAKE2B_256 = 2,
+    ITB_WRAPPER_CIPHER_BLAKE2B_512 = 3,
+    ITB_WRAPPER_CIPHER_BLAKE2S     = 4,
+    ITB_WRAPPER_CIPHER_BLAKE3      = 5,
+    ITB_WRAPPER_CIPHER_AES_128_CTR = 6,
+    ITB_WRAPPER_CIPHER_SIPHASH24   = 7,
+    ITB_WRAPPER_CIPHER_CHACHA20    = 8,
 } itb_wrapper_cipher_t;
 
 /*
- * Returns the canonical short name of the named outer cipher ("aescmac" /
- * "chacha20" / "siphash24" / "areion256" / "areion512" / "blake2b256" /
- * "blake2b512" / "blake2s" / "blake3") as an interned NUL-terminated C
- * string. The pointer is owned by libitb_c and stays valid for the
- * lifetime of the process; callers MUST NOT free it. Returns NULL for any
- * value not in itb_wrapper_cipher_t.
+ * Returns the canonical short name of the named outer cipher as an
+ * interned NUL-terminated C string. The pointer is owned by libitb_c
+ * and stays valid for the lifetime of the process; callers MUST NOT free it.
+ * Returns NULL for any value not in itb_wrapper_cipher_t.
  */
 const char *itb_wrapper_cipher_name(itb_wrapper_cipher_t cipher);
 
 /*
  * Returns the byte length of the keystream-cipher key for the named
- * outer cipher via *out_size: 16 for AES-128-CTR / SipHash-CTR; 32 for
- * ChaCha20 / Areion-SoEM-256 / BLAKE2b-256 / BLAKE2b-512 / BLAKE2s /
- * BLAKE3; 64 for Areion-SoEM-512. Returns ITB_BAD_INPUT for an unknown
+ * outer cipher via *out_size. Returns ITB_BAD_INPUT for an unknown
  * cipher value.
  */
 itb_status_t itb_wrapper_key_size(itb_wrapper_cipher_t cipher,
@@ -1426,9 +1422,7 @@ itb_status_t itb_wrapper_key_size(itb_wrapper_cipher_t cipher,
 /*
  * Returns the on-wire nonce length the named outer cipher emits per
  * stream via *out_size: 12 for ChaCha20; 16 for every other outer
- * cipher (AES-128-CTR / SipHash-CTR / Areion-SoEM-256 / Areion-SoEM-512 /
- * BLAKE2b-256 / BLAKE2b-512 / BLAKE2s / BLAKE3). Returns ITB_BAD_INPUT
- * for an unknown cipher value.
+ * cipher. Returns ITB_BAD_INPUT for an unknown cipher value.
  */
 itb_status_t itb_wrapper_nonce_size(itb_wrapper_cipher_t cipher,
                                     size_t *out_size);
@@ -1458,9 +1452,9 @@ itb_status_t itb_wrapper_generate_key(itb_wrapper_cipher_t cipher,
  * reported by itb_wrapper_key_size). On failure *out_key is NULL and
  * *out_key_len is 0; itb_last_error() carries the diagnostic.
  *
- * `master` must be at least itb_wrapper_key_size(cipher) bytes; a
- * shorter master returns ITB_BAD_INPUT. Returns ITB_BAD_INPUT for an
- * unknown cipher value.
+ * `master` must be at least 32 bytes (the wrapper's uniform security
+ * floor); a shorter master returns ITB_BAD_INPUT. Returns ITB_BAD_INPUT
+ * for an unknown cipher value.
  */
 itb_status_t itb_wrapper_derive_key(itb_wrapper_cipher_t cipher,
                                     const uint8_t *master, size_t master_len,

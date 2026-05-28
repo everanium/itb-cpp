@@ -34,12 +34,12 @@ struct CanonicalHash {
 constexpr CanonicalHash kCanonicalHashes[] = {
     {"areion256",  256},
     {"areion512",  512},
-    {"siphash24",  128},
-    {"aescmac",    128},
     {"blake2b256", 256},
     {"blake2b512", 512},
     {"blake2s",    256},
     {"blake3",     256},
+    {"aescmac",    128},
+    {"siphash24",  128},
     {"chacha20",   256},
 };
 
@@ -51,12 +51,12 @@ constexpr int kCandidateKb[] = {512, 1024, 2048};
 std::size_t expected_hash_key_len(std::string_view name) {
     if (name == "areion256")  return 32;
     if (name == "areion512")  return 64;
-    if (name == "siphash24")  return 0;
-    if (name == "aescmac")    return 16;
     if (name == "blake2b256") return 32;
     if (name == "blake2b512") return 64;
     if (name == "blake2s")    return 32;
     if (name == "blake3")     return 32;
+    if (name == "aescmac")    return 16;
+    if (name == "siphash24")  return 0;
     if (name == "chacha20")   return 32;
     return 0;
 }

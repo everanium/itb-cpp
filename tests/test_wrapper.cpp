@@ -52,19 +52,19 @@ std::vector<std::uint8_t> fill_pattern(std::size_t n) {
 constexpr itb::wrapper::Cipher kAllCiphers[] = {
     itb::wrapper::Cipher::Areion256,
     itb::wrapper::Cipher::Areion512,
-    itb::wrapper::Cipher::SipHash24,
-    itb::wrapper::Cipher::Aes128Ctr,
     itb::wrapper::Cipher::Blake2b256,
     itb::wrapper::Cipher::Blake2b512,
     itb::wrapper::Cipher::Blake2s,
     itb::wrapper::Cipher::Blake3,
+    itb::wrapper::Cipher::Aes128Ctr,
+    itb::wrapper::Cipher::SipHash24,
     itb::wrapper::Cipher::ChaCha20,
 };
 
 // Key / nonce byte lengths paired by kAllCiphers index:
-// areion256 / areion512 / siphash24 / aescmac / blake2b256 / blake2b512 /
-// blake2s / blake3 / chacha20.
-constexpr std::size_t kExpectedKey[]   = { 32, 64, 16, 16, 32, 32, 32, 32, 32 };
+// areion256 / areion512 / blake2b256 / blake2b512 / blake2s / blake3 /
+// aescmac / siphash24 / chacha20.
+constexpr std::size_t kExpectedKey[]   = { 32, 64, 32, 32, 32, 32, 16, 16, 32 };
 constexpr std::size_t kExpectedNonce[] = { 16, 16, 16, 16, 16, 16, 16, 16, 12 };
 
 } // namespace

@@ -1,17 +1,18 @@
 // bench_single.cpp — Easy Mode Single-Ouroboros benchmarks for the C++
 // binding.
 //
-// Mirrors the BenchmarkSingle* cohort from itb_ext_test.go for the nine
+// Mirrors the BenchmarkSingle* cohort from itb_ext_test.go for
 // PRF-grade primitives, locked at 1024-bit ITB key width and 16 MiB
 // CSPRNG-filled payload. One mixed-primitive variant
-// (itb::Encryptor::Mixed with BLAKE3 / BLAKE2s / BLAKE2b-256 +
-// Areion-SoEM-256 dedicated lockSeed) covers the Easy Mode Mixed
-// surface alongside the single-primitive grid.
+// (itb::Encryptor::Mixed + dedicated lockSeed) covers
+// the Easy Mode Mixed surface alongside the single-primitive grid.
 //
 // Run with:
 //
 //   make bench
 //   ./bench/build/bench_single
+//
+//   ITB_NONCE_BITS=512 ITB_LOCKSEED=1 ITB_LOCKBATCH=1 ./bench/build/bench_single
 //
 //   ITB_NONCE_BITS=512 ITB_LOCKSEED=1 ./bench/build/bench_single
 //
@@ -32,7 +33,7 @@
 
 // Mixed-primitive composition used by the bench_single_mixed_* cases.
 // noise / data / start cycle through the BLAKE family while
-// Areion-SoEM-256 takes the dedicated lockSeed slot — every name
+// Areion takes the dedicated lockSeed slot — every name
 // resolves to a 256-bit native hash width so the Mixed factory's
 // width-check passes.
 namespace {
@@ -48,10 +49,14 @@ constexpr std::size_t kPayload   = bench::kPayload16MB;
 
 // Apply the dedicated lockSeed slot when ITB_LOCKSEED is set. Easy
 // Mode auto-couples BitSoup + LockSoup as a side effect, so no
-// separate calls are issued.
+// separate calls are issued. When ITB_LOCKBATCH is also set, enable the
+// Lock Batch performance Lock Soup mode on the same encryptor.
 void apply_lockseed_if_requested(itb::Encryptor& enc) {
     if (bench::env_lock_seed()) {
         enc.set_lock_seed(1);
+    }
+    if (bench::env_lock_batch()) {
+        enc.set_lock_batch(1);
     }
 }
 
@@ -67,7 +72,7 @@ std::unique_ptr<itb::Encryptor> build_single(const char* primitive) {
 
 // Construct a mixed-primitive Single-Ouroboros encryptor matching the
 // README Quick Start composition (BLAKE3 noise / BLAKE2s data /
-// BLAKE2b-256 start). The dedicated Areion-SoEM-256 lockSeed slot is
+// BLAKE2b-256 start). The dedicated lockSeed slot is
 // allocated only when ITB_LOCKSEED is set, so the no-LockSeed bench
 // arm measures the plain mixed-primitive cost without the BitSoup +
 // LockSoup auto-couple. The four primitive names share the 256-bit
@@ -85,24 +90,15 @@ std::unique_ptr<itb::Encryptor> build_mixed_single() {
     return enc;
 }
 
-// Heap-resident registry of bench encryptors so each closure can reach
-// its Encryptor through a stable pointer. Encryptors are move-only;
-// the registry holds owning unique_ptrs.
-std::vector<std::unique_ptr<itb::Encryptor>>& encryptor_registry() {
-    static std::vector<std::unique_ptr<itb::Encryptor>> reg;
-    return reg;
-}
+// ----- Per-case constructors (factory-friendly, each builds own Encryptor)
 
-itb::Encryptor* register_encryptor(std::unique_ptr<itb::Encryptor> enc) {
-    encryptor_registry().push_back(std::move(enc));
-    return encryptor_registry().back().get();
-}
+// Each make_*_case creates a fresh Encryptor via shared_ptr so the
+// BenchCase closure owns it; when the BenchCase is destroyed the
+// Encryptor is released immediately.
 
-// ----- Per-case constructors --------------------------------------
-
-// Encryptor + payload constructed once outside the measured loop;
-// only the encrypt call is timed.
-bench::BenchCase make_encrypt_case(std::string name, itb::Encryptor* enc) {
+bench::BenchCase make_encrypt_case(std::string name,
+                                   std::unique_ptr<itb::Encryptor> enc_owner) {
+    auto enc = std::shared_ptr<itb::Encryptor>(std::move(enc_owner));
     auto payload = std::make_shared<std::vector<std::uint8_t>>(
         bench::random_bytes_vec(kPayload));
     bench::BenchFn run = [enc, payload](std::uint64_t iters) {
@@ -113,9 +109,9 @@ bench::BenchCase make_encrypt_case(std::string name, itb::Encryptor* enc) {
     return bench::BenchCase{std::move(name), std::move(run), kPayload};
 }
 
-// Pre-encrypts a single ciphertext outside the measured loop; only the
-// decrypt call is timed.
-bench::BenchCase make_decrypt_case(std::string name, itb::Encryptor* enc) {
+bench::BenchCase make_decrypt_case(std::string name,
+                                   std::unique_ptr<itb::Encryptor> enc_owner) {
+    auto enc = std::shared_ptr<itb::Encryptor>(std::move(enc_owner));
     auto payload = bench::random_bytes_vec(kPayload);
     auto ciphertext = std::make_shared<std::vector<std::uint8_t>>(
         enc->encrypt(payload.data(), payload.size()));
@@ -128,7 +124,8 @@ bench::BenchCase make_decrypt_case(std::string name, itb::Encryptor* enc) {
 }
 
 bench::BenchCase make_encrypt_auth_case(std::string name,
-                                        itb::Encryptor* enc) {
+                                        std::unique_ptr<itb::Encryptor> enc_owner) {
+    auto enc = std::shared_ptr<itb::Encryptor>(std::move(enc_owner));
     auto payload = std::make_shared<std::vector<std::uint8_t>>(
         bench::random_bytes_vec(kPayload));
     bench::BenchFn run = [enc, payload](std::uint64_t iters) {
@@ -140,7 +137,8 @@ bench::BenchCase make_encrypt_auth_case(std::string name,
 }
 
 bench::BenchCase make_decrypt_auth_case(std::string name,
-                                        itb::Encryptor* enc) {
+                                        std::unique_ptr<itb::Encryptor> enc_owner) {
+    auto enc = std::shared_ptr<itb::Encryptor>(std::move(enc_owner));
     auto payload = bench::random_bytes_vec(kPayload);
     auto ciphertext = std::make_shared<std::vector<std::uint8_t>>(
         enc->encrypt_auth(payload.data(), payload.size()));
@@ -152,51 +150,59 @@ bench::BenchCase make_decrypt_auth_case(std::string name,
     return bench::BenchCase{std::move(name), std::move(run), kPayload};
 }
 
-// Assemble the full case list: 9 single-primitive entries × 4 ops + 1
-// mixed entry × 4 ops = 40 cases. Order is primitive-major / op-minor
-// so a filter on a primitive name keeps all four ops grouped together
-// in the output.
-std::vector<bench::BenchCase> build_cases() {
-    std::vector<bench::BenchCase> cases;
-    cases.reserve(40);
+// Lazy factory type: builds one BenchCase on demand.
+using CaseFactory = std::function<bench::BenchCase()>;
+struct NamedFactory {
+    std::string  name;
+    CaseFactory  factory;
+};
+
+// Return a list of cheap NamedFactory pairs for the full 40-case message
+// suite. No payload or Encryptor is allocated here.
+std::vector<NamedFactory> build_lazy_factories() {
+    std::vector<NamedFactory> facs;
+    facs.reserve(40);
+
     for (std::size_t i = 0; i < bench::kPrimitivesCanonicalLen; i++) {
-        const char* prim = bench::kPrimitivesCanonical[i];
+        std::string prim(bench::kPrimitivesCanonical[i]);
         char buf[128];
+
         std::snprintf(buf, sizeof(buf),
-                      "bench_single_%s_%dbit_encrypt_16mb", prim, kKeyBits);
-        cases.push_back(make_encrypt_case(buf,
-            register_encryptor(build_single(prim))));
+                      "bench_single_%s_%dbit_encrypt_16mb", prim.c_str(), kKeyBits);
+        facs.push_back({buf, [prim]{ return make_encrypt_case(
+            std::string("bench_single_") + prim + "_" + std::to_string(kKeyBits) + "bit_encrypt_16mb",
+            build_single(prim.c_str())); }});
+
         std::snprintf(buf, sizeof(buf),
-                      "bench_single_%s_%dbit_decrypt_16mb", prim, kKeyBits);
-        cases.push_back(make_decrypt_case(buf,
-            register_encryptor(build_single(prim))));
+                      "bench_single_%s_%dbit_decrypt_16mb", prim.c_str(), kKeyBits);
+        facs.push_back({buf, [prim]{ return make_decrypt_case(
+            std::string("bench_single_") + prim + "_" + std::to_string(kKeyBits) + "bit_decrypt_16mb",
+            build_single(prim.c_str())); }});
+
         std::snprintf(buf, sizeof(buf),
-                      "bench_single_%s_%dbit_encrypt_auth_16mb", prim, kKeyBits);
-        cases.push_back(make_encrypt_auth_case(buf,
-            register_encryptor(build_single(prim))));
+                      "bench_single_%s_%dbit_encrypt_auth_16mb", prim.c_str(), kKeyBits);
+        facs.push_back({buf, [prim]{ return make_encrypt_auth_case(
+            std::string("bench_single_") + prim + "_" + std::to_string(kKeyBits) + "bit_encrypt_auth_16mb",
+            build_single(prim.c_str())); }});
+
         std::snprintf(buf, sizeof(buf),
-                      "bench_single_%s_%dbit_decrypt_auth_16mb", prim, kKeyBits);
-        cases.push_back(make_decrypt_auth_case(buf,
-            register_encryptor(build_single(prim))));
+                      "bench_single_%s_%dbit_decrypt_auth_16mb", prim.c_str(), kKeyBits);
+        facs.push_back({buf, [prim]{ return make_decrypt_auth_case(
+            std::string("bench_single_") + prim + "_" + std::to_string(kKeyBits) + "bit_decrypt_auth_16mb",
+            build_single(prim.c_str())); }});
     }
-    char buf[128];
-    std::snprintf(buf, sizeof(buf),
-                  "bench_single_mixed_%dbit_encrypt_16mb", kKeyBits);
-    cases.push_back(make_encrypt_case(buf,
-        register_encryptor(build_mixed_single())));
-    std::snprintf(buf, sizeof(buf),
-                  "bench_single_mixed_%dbit_decrypt_16mb", kKeyBits);
-    cases.push_back(make_decrypt_case(buf,
-        register_encryptor(build_mixed_single())));
-    std::snprintf(buf, sizeof(buf),
-                  "bench_single_mixed_%dbit_encrypt_auth_16mb", kKeyBits);
-    cases.push_back(make_encrypt_auth_case(buf,
-        register_encryptor(build_mixed_single())));
-    std::snprintf(buf, sizeof(buf),
-                  "bench_single_mixed_%dbit_decrypt_auth_16mb", kKeyBits);
-    cases.push_back(make_decrypt_auth_case(buf,
-        register_encryptor(build_mixed_single())));
-    return cases;
+
+    // Mixed entries.
+    std::string en  = std::string("bench_single_mixed_") + std::to_string(kKeyBits) + "bit_encrypt_16mb";
+    std::string dn  = std::string("bench_single_mixed_") + std::to_string(kKeyBits) + "bit_decrypt_16mb";
+    std::string ean = std::string("bench_single_mixed_") + std::to_string(kKeyBits) + "bit_encrypt_auth_16mb";
+    std::string dan = std::string("bench_single_mixed_") + std::to_string(kKeyBits) + "bit_decrypt_auth_16mb";
+    facs.push_back({en,  [en]  { return make_encrypt_case(en,  build_mixed_single()); }});
+    facs.push_back({dn,  [dn]  { return make_decrypt_case(dn,  build_mixed_single()); }});
+    facs.push_back({ean, [ean] { return make_encrypt_auth_case(ean, build_mixed_single()); }});
+    facs.push_back({dan, [dan] { return make_decrypt_auth_case(dan, build_mixed_single()); }});
+
+    return facs;
 }
 
 } // namespace
@@ -216,8 +222,36 @@ int main() {
                     bench::env_lock_seed() ? "on" : "off");
         std::fflush(stdout);
 
-        auto cases = build_cases();
-        bench::run_all(cases);
+        auto facs = build_lazy_factories();
+        const char* flt = bench::env_filter();
+        double min_seconds = bench::env_min_seconds();
+
+        std::vector<const NamedFactory*> selected;
+        for (const auto& nf : facs) {
+            if (flt == nullptr || nf.name.find(flt) != std::string::npos) {
+                selected.push_back(&nf);
+            }
+        }
+
+        if (selected.empty()) {
+            std::fprintf(stderr,
+                         "no bench cases match filter %s; available:",
+                         flt == nullptr ? "<unset>" : flt);
+            for (const auto& nf : facs) {
+                std::fprintf(stderr, " %s", nf.name.c_str());
+            }
+            std::fprintf(stderr, "\n");
+            return 0;
+        }
+
+        std::printf("# benchmarks=%zu payload_bytes=%zu min_seconds=%g\n",
+                    selected.size(), kPayload, min_seconds);
+        std::fflush(stdout);
+
+        for (const auto* nf : selected) {
+            auto c = nf->factory();
+            bench::measure_one(c, min_seconds);
+        }
     } catch (const itb::ItbError& e) {
         std::fprintf(stderr, "itb error (code=%d): %s\n",
                      e.code(), e.what());

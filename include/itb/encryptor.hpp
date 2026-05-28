@@ -508,6 +508,10 @@ public:
         check_open();
         detail::check(itb_encryptor_set_lock_soup(handle_, mode));
     }
+    void set_lock_batch(int mode) {
+        check_open();
+        detail::check(itb_encryptor_set_lock_batch(handle_, mode));
+    }
     void set_lock_seed(int mode) {
         check_open();
         detail::check(itb_encryptor_set_lock_seed(handle_, mode));

@@ -4,7 +4,7 @@
 // Mirrors bindings/c/tests/test_easy_roundtrip.c on the C++ surface,
 // covering:
 //
-//   - The full 9-primitive × {Single, Triple} × {512, 1024, 2048}-bit
+//   - The full canonical primitive set × {Single, Triple} × {512, 1024, 2048}-bit
 //     key_bits grid (filtered to widths whose key_bits is a multiple
 //     of the primitive's native width). Both encrypt + decrypt and
 //     encrypt_auth + decrypt_auth flow through the round-trip
@@ -12,7 +12,7 @@
 //   - Multiple payload sizes (32 B, 1 KiB, 16 KiB, 1 MiB) on one
 //     representative primitive (blake3) to catch buffer-management
 //     regressions at large input.
-//   - 1024-byte payload at every 9-primitive Single combination — a
+//   - 1024-byte payload at every Single combination across the canonical primitive set — a
 //     consistent per-primitive smoke at moderate size.
 //   - Round-trip stability: 100 sequential encrypt + decrypt on the
 //     same Encryptor still recovers plaintext on the last iteration
@@ -44,12 +44,12 @@ struct PrimSpec {
 constexpr PrimSpec kPrims[] = {
     {"areion256",  256},
     {"areion512",  512},
-    {"siphash24",  128},
-    {"aescmac",    128},
     {"blake2b256", 256},
     {"blake2b512", 512},
     {"blake2s",    256},
     {"blake3",     256},
+    {"aescmac",    128},
+    {"siphash24",  128},
     {"chacha20",   256},
 };
 
@@ -69,7 +69,7 @@ std::vector<std::uint8_t> token_bytes(std::size_t len) {
 
 } // namespace
 
-TEST_CASE("encrypt + decrypt round-trip across the 9-primitive × 3-key_bits grid (single)",
+TEST_CASE("encrypt + decrypt round-trip across the every-primitive × 3-key_bits grid (single)",
           "[easy_roundtrip][grid][single]") {
     auto pt = token_bytes(4096);
     for (const auto& spec : kPrims) {
@@ -91,7 +91,7 @@ TEST_CASE("encrypt + decrypt round-trip across the 9-primitive × 3-key_bits gri
     }
 }
 
-TEST_CASE("encrypt_auth + decrypt_auth round-trip across the 9-primitive × 3-key_bits grid (single)",
+TEST_CASE("encrypt_auth + decrypt_auth round-trip across the every-primitive × 3-key_bits grid (single)",
           "[easy_roundtrip][grid][single][auth]") {
     auto pt = token_bytes(4096);
     for (const auto& spec : kPrims) {
@@ -109,7 +109,7 @@ TEST_CASE("encrypt_auth + decrypt_auth round-trip across the 9-primitive × 3-ke
     }
 }
 
-TEST_CASE("encrypt + decrypt round-trip across the 9-primitive × 3-key_bits grid (triple)",
+TEST_CASE("encrypt + decrypt round-trip across the every-primitive × 3-key_bits grid (triple)",
           "[easy_roundtrip][grid][triple]") {
     auto pt = token_bytes(4096);
     for (const auto& spec : kPrims) {
@@ -130,7 +130,7 @@ TEST_CASE("encrypt + decrypt round-trip across the 9-primitive × 3-key_bits gri
     }
 }
 
-TEST_CASE("encrypt_auth + decrypt_auth round-trip across the 9-primitive × 3-key_bits grid (triple)",
+TEST_CASE("encrypt_auth + decrypt_auth round-trip across the every-primitive × 3-key_bits grid (triple)",
           "[easy_roundtrip][grid][triple][auth]") {
     auto pt = token_bytes(4096);
     for (const auto& spec : kPrims) {

@@ -155,7 +155,7 @@ ITB_TEST_FILTER='[blake3]' ./run_tests.sh
 Throughput numbers live in [`bench/BENCH.md`](bench/BENCH.md); see
 [`bench/README.md`](bench/README.md) for invocation, environment
 variables, and per-case output format. The harness covers four ops
-across the nine PRF-grade primitives plus one mixed variant for both
+across PRF-grade primitives plus one mixed variant for both
 Single and Triple at 1024-bit ITB key width and 16 MiB payload.
 Four-pass sweep:
 
@@ -406,6 +406,11 @@ enc.set_bit_soup(1);        // bit-level split ("bit-soup"; default: 0 = byte-le
 enc.set_lock_soup(1);       // Insane Interlocked Mode: per-chunk PRF-keyed
                             // bit-permutation overlay on top of bit-soup
                             // (auto-couples with bit_soup for Single)
+enc.set_lock_batch(1);      // Lock Batch is the performance Lock Soup mode: recommended
+                            // in every case when the configured hash is PRF-grade, since
+                            // security is preserved under the PRF assumption while
+                            // throughput rises. Symmetric option — set identically on
+                            // the encrypt and decrypt sides.
 
 // enc.set_lock_seed(1);    // optional dedicated lockSeed — separates
                             // bit-permutation PRF keying from the
@@ -481,6 +486,7 @@ dec.set_nonce_bits(512);
 dec.set_barrier_fill(4);
 dec.set_bit_soup(1);
 dec.set_lock_soup(1);
+dec.set_lock_batch(1);      // Recommended under the PRF assumption — the performance Lock Soup mode; symmetric, set on both sides.
 // dec.set_lock_seed(1);   // optional — import below restores it from the blob.
 
 dec.import_state(blob);
@@ -505,7 +511,7 @@ try {
 
 Each `Encryptor` is single-thread by construction. Cipher methods,
 per-instance setters (`set_nonce_bits` / `set_barrier_fill` /
-`set_bit_soup` / `set_lock_soup` / `set_lock_seed` / `set_chunk_size`),
+`set_bit_soup` / `set_lock_soup` / `set_lock_batch` / `set_lock_seed` / `set_chunk_size`),
 and persistence (`export_state` / `import_state`) all mutate
 per-instance state without locking — concurrent use against the same
 encryptor requires external synchronisation. Distinct `Encryptor`
@@ -680,6 +686,11 @@ itb::set_barrier_fill(4);    // default: 1, valid: 1, 2, 4, 8, 16, 32
 itb::set_bit_soup(1);        // bit-level split ("bit-soup"; default: 0)
 itb::set_lock_soup(1);       // per-chunk PRF-keyed bit-permutation overlay
                              // (auto-couples with bit_soup for Single)
+itb::set_lock_batch(1);      // Lock Batch is the performance Lock Soup mode: recommended
+                             // in every case when the configured hash is PRF-grade, since
+                             // security is preserved under the PRF assumption while
+                             // throughput rises. Symmetric option — set identically on
+                             // the encrypt and decrypt sides.
 
 // Three independent CSPRNG-keyed Areion-SoEM-512 seeds. Each Seed
 // pre-keys its primitive once at construction.
@@ -902,17 +913,10 @@ with bitwise OR and pass to `export_blob` / `export_triple`.
 
 `export_blob` packs Single, `export_triple` packs Triple; importers
 reject the wrong shape with `ItbBlobModeMismatchError`. Globals
-(NonceBits / BarrierFill / BitSoup / LockSoup) are captured at export
+(NonceBits / BarrierFill / BitSoup / LockSoup / LockBatch) are captured at export
 and applied process-wide on import via `itb::set_*`.
 
 ## Hash primitives (Single / Triple)
-
-Binding-side PRF-only order — **Areion-SoEM-256**, **Areion-SoEM-512**,
-**BLAKE2b-256**, **BLAKE2b-512**, **BLAKE2s**, **BLAKE3**, **AES-CMAC**,
-**SipHash-2-4**, **ChaCha20**. FFI names: `areion256`, `areion512`,
-`blake2b256`, `blake2b512`, `blake2s`, `blake3`, `aescmac`, `siphash24`,
-`chacha20`. Below-spec lab primitives (CRC128, FNV-1a, MD5) are absent
-by construction — the libitb registry does not expose them.
 
 Single Ouroboros — three seeds (`noiseSeed`, `dataSeed`, `startSeed`)
 via `itb::encrypt` / `decrypt` / `encrypt_auth` / `decrypt_auth`.
@@ -1003,6 +1007,7 @@ in the process. Out-of-range values throw
 | `itb::set_barrier_fill(n)` | 1, 2, 4, 8, 16, 32 | 1 |
 | `itb::set_bit_soup(mode)` | 0 (off), non-zero (on) | 0 |
 | `itb::set_lock_soup(mode)` | 0 (off), non-zero (on) | 0 |
+| `itb::set_lock_batch(mode)` | 0 (off), non-zero (on) | 0 |
 
 Read-only accessors: `itb::max_key_bits()`, `itb::channels()`,
 `itb::header_size()`, `itb::version()`. Each setter has a paired
@@ -1173,7 +1178,7 @@ Header-only RAII surface in `<itb/wrapper.hpp>`.
 
 | Symbol | Purpose |
 |---|---|
-| `wrapper::Cipher::Aes128Ctr / ChaCha20 / SipHash24 / Areion256 / Areion512 / Blake2b256 / Blake2b512 / Blake2s / Blake3` | Cipher enum |
+| `wrapper::Cipher::Areion256 / Areion512 / Blake2b256 / Blake2b512 / Blake2s / Blake3 / Aes128Ctr / SipHash24 / ChaCha20 / etc...` | Cipher enum |
 | `wrapper::ffi_name(cipher)` | Canonical cipher name |
 | `wrapper::key_size(cipher) / wrapper::nonce_size(cipher)` | Cipher dimension accessors |
 | `wrapper::generate_key(cipher) -> std::vector<std::uint8_t>` | CSPRNG-fresh wrapper key |

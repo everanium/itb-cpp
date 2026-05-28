@@ -1,7 +1,7 @@
 // test_persistence.cpp — full Encryptor state persistence coverage.
 //
 // Covers `Encryptor::export_state` / `Encryptor::import_state` /
-// `peek_config` across the canonical 9 PRF primitives × 2 modes ×
+// `peek_config` across the canonical PRF primitives × 2 modes ×
 // 2 MACs grid, the Mixed / Mixed3 per-slot persistence path
 // (with and without the dedicated lockSeed slot), the peek-config
 // happy path on both single-primitive and Mixed encryptors, the
@@ -28,17 +28,17 @@ struct PrimSpec {
     int width;
 };
 
-// Canonical 9-primitive set exposed through the Encryptor surface;
+// Canonical primitive set exposed through the Encryptor surface;
 // width drives the key_bits-divisibility filter at the call site.
 constexpr PrimSpec kPrims[] = {
     {"areion256",  256},
     {"areion512",  512},
-    {"siphash24",  128},
-    {"aescmac",    128},
     {"blake2b256", 256},
     {"blake2b512", 512},
     {"blake2s",    256},
     {"blake3",     256},
+    {"aescmac",    128},
+    {"siphash24",  128},
     {"chacha20",   256},
 };
 

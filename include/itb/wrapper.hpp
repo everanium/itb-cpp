@@ -4,8 +4,7 @@
 // Header-only RAII facade over the C binding's `itb_wrap*` /
 // `itb_unwrap*` / `itb_wrap_stream_writer_*` /
 // `itb_unwrap_stream_reader_*` API. Wraps an ITB ciphertext under one
-// of three outer keystream ciphers — AES-128-CTR, ChaCha20 (RFC8439),
-// or SipHash-2-4 in CTR mode — so the on-wire bytes carry no
+// of outer keystream ciphers in CTR mode, so the on-wire bytes carry no
 // ITB-specific format pattern. Wire format is `nonce ||
 // keystream-XOR(bytestream)`, indistinguishable from any generic
 // stream-cipher payload by surface pattern. ITB's content-deniability
@@ -17,8 +16,7 @@
 //
 //   - `itb::wrapper::Cipher` — strongly-typed enum class selector
 //     mapping to the C-binding's `itb_wrapper_cipher_t`.
-//   - `itb::wrapper::ffi_name(Cipher)` — interned canonical short
-//     name (`"aescmac"` / `"chacha20"` / `"siphash24"`).
+//   - `itb::wrapper::ffi_name(Cipher)` — interned canonical short name.
 //   - `itb::wrapper::key_size(Cipher)` / `nonce_size(Cipher)` — byte
 //     lengths of the outer cipher's key / on-wire nonce.
 //   - `itb::wrapper::generate_key(Cipher)` — fresh CSPRNG outer key.
@@ -85,27 +83,25 @@ namespace wrapper {
 
 // ---- Cipher selector ---------------------------------------------
 
-// Strongly-typed enum class enumerating the nine supported outer
+// Strongly-typed enum class enumerating supported outer
 // keystream ciphers. Underlying integer values match the
 // `itb_wrapper_cipher_t` enum in the C binding (and in turn match
 // `wrapper.CipherNames` in the Go-side wrapper package), so a static
 // cast across the boundary is safe.
 enum class Cipher : int {
-    Aes128Ctr  = ITB_WRAPPER_CIPHER_AES_128_CTR,
-    ChaCha20   = ITB_WRAPPER_CIPHER_CHACHA20,
-    SipHash24  = ITB_WRAPPER_CIPHER_SIPHASH24,
     Areion256  = ITB_WRAPPER_CIPHER_AREION_256,
     Areion512  = ITB_WRAPPER_CIPHER_AREION_512,
     Blake2b256 = ITB_WRAPPER_CIPHER_BLAKE2B_256,
     Blake2b512 = ITB_WRAPPER_CIPHER_BLAKE2B_512,
     Blake2s    = ITB_WRAPPER_CIPHER_BLAKE2S,
     Blake3     = ITB_WRAPPER_CIPHER_BLAKE3,
+    Aes128Ctr  = ITB_WRAPPER_CIPHER_AES_128_CTR,
+    SipHash24  = ITB_WRAPPER_CIPHER_SIPHASH24,
+    ChaCha20   = ITB_WRAPPER_CIPHER_CHACHA20,
 };
 
 // Returns the canonical short name of the named outer cipher
-// (`"aescmac"` / `"chacha20"` / `"siphash24"` / `"areion256"` /
-// `"areion512"` / `"blake2b256"` / `"blake2b512"` / `"blake2s"` /
-// `"blake3"`) as a non-owning view over the process-lifetime interned C
+// as a non-owning view over the process-lifetime interned C
 // string. The view stays valid for the life of the process; callers
 // MUST NOT free the underlying buffer.
 inline std::string_view ffi_name(Cipher cipher) noexcept {
@@ -118,10 +114,8 @@ inline std::string_view ffi_name(Cipher cipher) noexcept {
 }
 
 // Returns the byte length of the keystream-cipher key for the named
-// outer cipher: 16 for AES-128-CTR / SipHash-CTR; 32 for ChaCha20 /
-// Areion-SoEM-256 / BLAKE2b-256 / BLAKE2b-512 / BLAKE2s / BLAKE3; 64 for
-// Areion-SoEM-512. Throws `ItbError(STATUS_BAD_INPUT)` on an unknown
-// cipher value.
+// outer cipher: 16/32/64. Throws `ItbError(STATUS_BAD_INPUT)`
+// on an unknown cipher value.
 inline std::size_t key_size(Cipher cipher) {
     std::size_t out = 0;
     detail::check(itb_wrapper_key_size(
@@ -130,10 +124,8 @@ inline std::size_t key_size(Cipher cipher) {
 }
 
 // Returns the on-wire nonce length the named outer cipher emits per
-// stream: 12 for ChaCha20; 16 for every other outer cipher (AES-128-CTR /
-// SipHash-CTR / Areion-SoEM-256 / Areion-SoEM-512 / BLAKE2b-256 /
-// BLAKE2b-512 / BLAKE2s / BLAKE3). Throws `ItbError(STATUS_BAD_INPUT)`
-// on an unknown cipher value.
+// stream: 12 for ChaCha20; 16 for other outer ciphers.
+// Throws `ItbError(STATUS_BAD_INPUT)` on an unknown cipher value.
 inline std::size_t nonce_size(Cipher cipher) {
     std::size_t out = 0;
     detail::check(itb_wrapper_nonce_size(
@@ -143,10 +135,8 @@ inline std::size_t nonce_size(Cipher cipher) {
 
 // Generates a fresh CSPRNG outer cipher key of the size required by
 // `cipher` (via `key_size`). Reads `/dev/urandom` on POSIX hosts via
-// the C binding's `itb_wrapper_generate_key`.
-//
-// On failure throws `ItbError(STATUS_INTERNAL)` with the libitb
-// last-error message attached.
+// the C binding's `itb_wrapper_generate_key`. On failure throws
+// `ItbError(STATUS_INTERNAL)` with the libitb last-error message attached.
 inline std::vector<std::uint8_t> generate_key(Cipher cipher) {
     std::uint8_t* buf = nullptr;
     std::size_t len = 0;
@@ -162,10 +152,8 @@ inline std::vector<std::uint8_t> generate_key(Cipher cipher) {
 // result is a deterministic function of `(cipher, master)`, so both
 // endpoints derive the same key from a shared master. `master` must be
 // at least 32 bytes (the wrapper's uniform security floor); the returned
-// buffer has length `key_size(cipher)`.
-//
-// On failure (unknown cipher, too-short master) throws `ItbError`
-// carrying the libitb last-error message.
+// buffer has length `key_size(cipher)`. On failure (unknown cipher,
+// too-short master) throws `ItbError` carrying the libitb last-error message.
 inline std::vector<std::uint8_t> derive_key(Cipher cipher,
                                             const std::uint8_t* master,
                                             std::size_t master_len) {

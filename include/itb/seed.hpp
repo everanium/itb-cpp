@@ -31,8 +31,8 @@ class Seed {
 public:
     // Construct a fresh seed with CSPRNG-generated keying material.
     // `hash_name` is one of the canonical hash primitives
-    // (`"areion256"` / `"areion512"` / `"siphash24"` / `"aescmac"` /
-    // `"blake2b256"` / `"blake2b512"` / `"blake2s"` / `"blake3"` /
+    // (`"areion256"` / `"areion512"` / `"blake2b256"` / `"blake2b512"` /
+    // `"blake2s"` / `"blake3"` / `"aescmac"` / `"siphash24"` /
     // `"chacha20"`); `key_bits` is the ITB key width in bits (512,
     // 1024, or 2048 — multiple of 64).
     Seed(std::string_view hash_name, int key_bits)

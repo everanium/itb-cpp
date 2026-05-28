@@ -46,6 +46,18 @@ private:
     int saved_;
 };
 
+class LockBatchGuard {
+public:
+    LockBatchGuard() : saved_{itb::get_lock_batch()} {}
+    ~LockBatchGuard() {
+        try { itb::set_lock_batch(saved_); } catch (...) {}
+    }
+    LockBatchGuard(const LockBatchGuard&)            = delete;
+    LockBatchGuard& operator=(const LockBatchGuard&) = delete;
+private:
+    int saved_;
+};
+
 class MaxWorkersGuard {
 public:
     MaxWorkersGuard() : saved_{itb::get_max_workers()} {}
@@ -100,6 +112,12 @@ TEST_CASE("config lock_soup round-trip", "[config][lock_soup]") {
     REQUIRE(itb::get_lock_soup() == 1);
     // lock_soup=1 forces bit_soup=1 inside libitb.
     REQUIRE(itb::get_bit_soup() == 1);
+}
+
+TEST_CASE("config lock_batch round-trip", "[config][lock_batch]") {
+    LockBatchGuard guard;
+    itb::set_lock_batch(1);
+    REQUIRE(itb::get_lock_batch() == 1);
 }
 
 TEST_CASE("config max_workers round-trip", "[config][max_workers]") {

@@ -4,7 +4,7 @@
 // Mirrors bindings/c/tests/test_easy_auth.c on the C++ surface. The
 // matrix exercised here is:
 //
-//   - All 9 PRF primitives × kmac256 × {Single, Triple} mode —
+//   - Every PRF-grade primitive × kmac256 × {Single, Triple} mode —
 //     encrypt_auth + decrypt_auth round-trip with payload bytes
 //     varying per primitive.
 //   - One representative primitive (areion512) × all 3 canonical
@@ -45,17 +45,17 @@ struct PrimSpec {
     int width;
 };
 
-// Canonical 9-primitive PRF set. width drives the key_bits-divisibility
+// Canonical PRF set. width drives the key_bits-divisibility
 // check (key_bits must be a multiple of width).
 constexpr PrimSpec kPrims[] = {
     {"areion256",  256},
     {"areion512",  512},
-    {"siphash24",  128},
-    {"aescmac",    128},
     {"blake2b256", 256},
     {"blake2b512", 512},
     {"blake2s",    256},
     {"blake3",     256},
+    {"aescmac",    128},
+    {"siphash24",  128},
     {"chacha20",   256},
 };
 
@@ -89,7 +89,7 @@ std::vector<std::uint8_t> tamper_after_header(
 
 } // namespace
 
-TEST_CASE("encrypt_auth + decrypt_auth round-trip across the 9-primitive grid (single)",
+TEST_CASE("encrypt_auth + decrypt_auth round-trip across the canonical primitive grid (single)",
           "[easy_auth][grid][single]") {
     auto pt = token_bytes(4096);
     for (const auto& spec : kPrims) {
@@ -105,7 +105,7 @@ TEST_CASE("encrypt_auth + decrypt_auth round-trip across the 9-primitive grid (s
     }
 }
 
-TEST_CASE("encrypt_auth + decrypt_auth round-trip across the 9-primitive grid (triple)",
+TEST_CASE("encrypt_auth + decrypt_auth round-trip across the canonical primitive grid (triple)",
           "[easy_auth][grid][triple]") {
     auto pt = token_bytes(4096);
     for (const auto& spec : kPrims) {

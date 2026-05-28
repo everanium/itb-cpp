@@ -123,6 +123,11 @@ inline void set_lock_soup(int mode) {
 }
 inline int get_lock_soup() noexcept { return itb_get_lock_soup(); }
 
+inline void set_lock_batch(int mode) {
+    detail::check(itb_set_lock_batch(mode));
+}
+inline int get_lock_batch() noexcept { return itb_get_lock_batch(); }
+
 inline void set_max_workers(int n) {
     detail::check(itb_set_max_workers(n));
 }

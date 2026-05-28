@@ -18,6 +18,11 @@
 //   ITB_NONCE_BITS    process-wide nonce width override; valid values
 //                     128 / 256 / 512. Maps to itb::set_nonce_bits
 //                     before any encryptor is constructed. Default 128.
+//   ITB_LOCKBATCH     non-empty / non-`0` enables Lock Batch (performance
+//                     Lock Soup mode); set with ITB_LOCKSEED. Every Easy
+//                     Mode encryptor additionally calls
+//                     enc.set_lock_batch(1). Inert unless Lock Soup is
+//                     engaged via ITB_LOCKSEED. Default off.
 //   ITB_LOCKSEED      when set to a non-empty / non-`0` value, every
 //                     Easy Mode encryptor in this run calls
 //                     enc.set_lock_seed(1). The Go side's auto-couple
@@ -57,8 +62,7 @@ inline constexpr std::size_t kPayload16MB = static_cast<std::size_t>(16) << 20;
 
 // Canonical PRF-grade primitive order. Mirrored verbatim across every
 // binding's bench harness so cross-language diff comparisons align
-// row-for-row. Per CLAUDE.md "binding-side canonical order" exception
-// under "Primitive ordering ...". The three below-spec lab primitives
+// row-for-row. The three below-spec lab primitives
 // (CRC128, FNV-1a, MD5) are not exposed through the libitb registry
 // and are absent here by construction.
 inline constexpr const char* kPrimitivesCanonical[] = {
@@ -89,6 +93,20 @@ inline int env_nonce_bits(int default_value) {
                  "ITB_NONCE_BITS=%s invalid (expected 128/256/512); using %d\n",
                  v, default_value);
     return default_value;
+}
+
+// Returns true when ITB_LOCKBATCH is set to a non-empty / non-`0`
+// value. Enables the Lock Batch performance Lock Soup mode; inert
+// unless Lock Soup is engaged via ITB_LOCKSEED.
+inline bool env_lock_batch() {
+    const char* v = std::getenv("ITB_LOCKBATCH");
+    if (v == nullptr || v[0] == '\0') {
+        return false;
+    }
+    if (std::strcmp(v, "0") == 0) {
+        return false;
+    }
+    return true;
 }
 
 inline bool env_lock_seed() {
@@ -300,6 +318,16 @@ inline void run_all(std::vector<BenchCase>& cases) {
             measure(c, min_seconds);
         }
     }
+}
+
+// ----- Single-case public measurement --------------------------------
+//
+// Measure a pre-built case at the given `min_seconds` threshold and
+// emit one Go-bench-style line.  Used by the lazy bench runner in
+// bench_wrapper.cpp — the caller handles filtering and the header
+// line; this function handles only measurement + output for one case.
+inline void measure_one(BenchCase& c, double min_seconds) {
+    measure(c, min_seconds);
 }
 
 } // namespace bench
