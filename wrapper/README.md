@@ -47,7 +47,7 @@ The wrap surface compiles against the C++17 baseline shared by the rest of the b
 | BLAKE3 in CTR mode | `Cipher::Blake3` | `"blake3"` | 32 B | 16 B | Keyed BLAKE3 PRF in CTR mode. Sound under standard PRF assumption. |
 | AES-128-CTR | `Cipher::Aes128Ctr` | `"aescmac"` | 16 B | 16 B | stdlib `crypto/aes` + `crypto/cipher.NewCTR`. AES-NI accelerated. |
 | SipHash-2-4 in CTR mode | `Cipher::SipHash24` | `"siphash24"` | 16 B | 16 B | `github.com/dchest/siphash` PRF. Custom CTR construction; sound under standard PRF assumption. |
-| ChaCha20 (RFC8439) | `Cipher::ChaCha20` | `"chacha20"` | 32 B | 12 B | `golang.org/x/crypto/chacha20`. No AES-NI dependency. |
+| ChaCha20 (RFC 8439) | `Cipher::ChaCha20` | `"chacha20"` | 32 B | 12 B | `golang.org/x/crypto/chacha20`. No AES-NI dependency. |
 
 The SipHash-CTR construction:
 - 16-byte SipHash key = wrapper key.

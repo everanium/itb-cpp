@@ -210,7 +210,7 @@ itb::Encryptor enc{"areion512", 1024, "hmac-blake3", 1};
 
 // Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
-// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master);
+// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master); std::memset(master, 0, master_len);
 
 // Sender — collect the inner ITB stream in memory, then wrap the
 // transcript end-to-end through one keystream session before flushing
@@ -319,7 +319,7 @@ itb::Mac mac{"hmac-blake3", mac_key};
 
 // Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
-// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master);
+// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master); std::memset(master, 0, master_len);
 
 {
     std::vector<std::uint8_t> inner;
@@ -430,7 +430,7 @@ std::cout << "encrypted: " << encrypted.size() << " bytes\n";
 
 // Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
-// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master);
+// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master); std::memset(master, 0, master_len);
 
 // Format-deniability ITB masking via outer-cipher wrapper (AES-128-CTR) ~0% overhead (Recommended in every case).
 auto nonce = itb::wrapper::wrap_in_place(
@@ -574,7 +574,7 @@ auto encrypted = enc.encrypt_auth(plaintext);
 
 // Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
-// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master);
+// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master); std::memset(master, 0, master_len);
 
 // Format-deniability ITB masking via outer-cipher wrapper (AES-128-CTR) ~0% overhead (Recommended in every case).
 auto nonce = itb::wrapper::wrap_in_place(
@@ -636,7 +636,7 @@ auto encrypted = enc.encrypt_auth(plaintext);
 
 // Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
-// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master);
+// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master); std::memset(master, 0, master_len);
 
 // Format-deniability ITB masking via outer-cipher wrapper (AES-128-CTR) ~0% overhead (Recommended in every case).
 auto nonce = itb::wrapper::wrap_in_place(
@@ -718,7 +718,7 @@ std::cout << "encrypted: " << encrypted.size() << " bytes\n";
 
 // Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
-// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master);
+// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master); std::memset(master, 0, master_len);
 
 // Format-deniability ITB masking via outer-cipher wrapper (AES-128-CTR) ~0% overhead (Recommended in every case).
 auto nonce = itb::wrapper::wrap_in_place(
@@ -827,7 +827,7 @@ itb::Seed s{"blake3", 1024};
 
 // Outer cipher key - preferred surface for HKDF / ML-KEM / key-rotation policy in user-side application. ITB Inner seeds + PRF key keep as CSPRNG derived.
 auto outerKey = itb::wrapper::generate_key(itb::wrapper::Cipher::Aes128Ctr);
-// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master);
+// auto outerKey = itb::wrapper::derive_key(itb::wrapper::Cipher::Aes128Ctr, master); std::memset(master, 0, master_len);
 
 // Push-pattern: sink receives each ITB chunk. close() flushes the
 // trailing partial chunk; destructor best-effort-flushes on scope exit.
