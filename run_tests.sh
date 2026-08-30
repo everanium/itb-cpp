@@ -1,50 +1,41 @@
 #!/usr/bin/env bash
 #
-# run_tests.sh — sequential test runner for the C++ binding.
+# run_tests.sh -- Build and run every tests/test_*.cpp under
+# bindings/cpp.
 #
-# Discovers every binary under tests/build/ produced by `make tests`
-# and runs them one at a time, mirroring the C binding's runner.
-# Catch2 v3's default reporter prints PASS / FAIL per test case; this
-# wrapper aggregates the per-binary exit codes.
+# Each tests/test_*.cpp is compiled to its own standalone executable
+# in tests/build/, then run in turn. Per-process isolation gives every
+# test a fresh libitb global state without needing an in-process
+# serial lock. Binaries link libitb.so via embedded RPATH, so
+# LD_LIBRARY_PATH is unnecessary at runtime.
 #
 # Usage:
-#   make tests && ./run_tests.sh
-#   ITB_TEST_FILTER='blake3' ./run_tests.sh   # passes filter to Catch2
+#   ./run_tests.sh
+#
+# Exit code is 0 when every test binary returns 0, 1 otherwise.
 
-set -eu
-set -o pipefail
+set -euo pipefail
 
 cd "$(dirname "$0")"
 
-if [ ! -d tests/build ]; then
-    echo "tests/build/ missing — run \`make tests\` first" >&2
-    exit 1
-fi
+./build.sh
 
-shopt -s nullglob
-BINS=(tests/build/test_*)
-if [ ${#BINS[@]} -eq 0 ]; then
-    echo "no test binaries in tests/build/ — Phase 7.5 not yet wired" >&2
-    exit 1
-fi
-
-PASS=0
-FAIL=0
-FILTER_ARGS=()
-if [ -n "${ITB_TEST_FILTER:-}" ]; then
-    FILTER_ARGS=("$ITB_TEST_FILTER")
-fi
-
-for bin in "${BINS[@]}"; do
-    name=$(basename "$bin")
-    if "$bin" "${FILTER_ARGS[@]}"; then
-        PASS=$((PASS + 1))
+fail=0
+pass=0
+for bin in tests/build/test_*; do
+    [ -x "$bin" ] || continue
+    name="$(basename "$bin")"
+    if "$bin" >/dev/null 2>&1; then
+        printf '  \033[32m✓\033[0m %s\n' "$name"
+        pass=$((pass + 1))
     else
-        FAIL=$((FAIL + 1))
-        echo "FAIL: $name" >&2
+        printf '  \033[31m✗\033[0m %s\n' "$name"
+        "$bin" 2>&1 | sed 's/^/      /'
+        fail=$((fail + 1))
     fi
 done
 
-echo "----"
-echo "result: $PASS passed, $FAIL failed (of $((PASS + FAIL)))"
-[ $FAIL -eq 0 ]
+echo
+echo "  PASS: $pass"
+echo "  FAIL: $fail"
+exit "$fail"

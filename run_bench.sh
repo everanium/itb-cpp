@@ -1,65 +1,60 @@
 #!/usr/bin/env bash
 #
-# run_bench.sh — sequential bench runner for the C++ binding.
-#
-# Drives the four canonical passes (Single +/-LockSeed, Triple
-# +/-LockSeed) and emits one Go-bench-style line per case to stdout.
-# Defaults match the cross-binding canonical: HMAC-BLAKE3 MAC,
-# 1024-bit ITB key, 16 MiB CSPRNG-filled payload, ITB_BENCH_MIN_SEC=5.
+# run_bench.sh -- micro-benchmark runner for the C++ binding. Builds
+# libitb.so + the C++ library via build.sh, then compiles and runs the
+# benches/bench_*.cpp binaries (make bench): encrypt_message,
+# encrypt_stream_pump, and encrypt_stream_one_shot throughput at
+# 1 MiB / 16 MiB / 64 MiB.
 #
 # Usage:
-#   make bench && ./run_bench.sh
-#   ITB_BENCH_MIN_SEC=10 ./run_bench.sh       # tighter confidence
-#   ITB_BENCH_FILTER='blake3' ./run_bench.sh  # one primitive only
-#   ./run_bench.sh --wrapper-only             # only the wrapper bench (skip Single/Triple/LockSeed)
+#   ./run_bench.sh
 
 set -eu
 set -o pipefail
 
 cd "$(dirname "$0")"
 
-if [ ! -x bench/build/bench_single ] || [ ! -x bench/build/bench_triple ]; then
-    echo "bench binaries missing — run \`make bench\` first" >&2
-    exit 1
-fi
+./build.sh
 
+# Go-runtime pacing defaults for bench-scale allocation churn; the
+# `:-` form respects any override set by the caller. The bench mains
+# apply the same caps programmatically.
+export ITB_GOMEMLIMIT="${ITB_GOMEMLIMIT:-512MiB}"
+export ITB_GOGC="${ITB_GOGC:-20}"
+
+# Bench-shape defaults — match the root Go BENCH3.md pin so the
+# throughput numbers are directly comparable to the shipped Go
+# Encrypt3x{128,256,512}Cfg baseline. Override any of these before
+# calling the script to change the shape.
+export ITB_NONCE_BITS="${ITB_NONCE_BITS:-512}"
+export ITB_KEY_BITS="${ITB_KEY_BITS:-1024}"
+export ITB_WITH_PARALLAX="${ITB_WITH_PARALLAX:-false}"
+export ITB_WITH_WRAPPER="${ITB_WITH_WRAPPER:-false}"
+export ITB_INNER_HASH="${ITB_INNER_HASH:-areion512}"
 export ITB_BENCH_MIN_SEC="${ITB_BENCH_MIN_SEC:-5}"
 
-wrapper_only=0
-case "${1:-}" in
-    --wrapper-only) wrapper_only=1;;
-    "")             ;;
-    *)              echo "unknown option: $1" >&2; exit 2;;
-esac
-
-run_pass() {
-    local label="$1"
-    local bin="$2"
-    shift 2
-    echo "==== ${label} ===="
-    "$bin" "$@"
-}
-
-if [ "$wrapper_only" -eq 1 ]; then
-    if [ ! -x bench/build/bench_wrapper ]; then
-        echo "bench_wrapper binary missing — run \`make bench\` first" >&2
-        exit 1
-    fi
-    unset ITB_LOCKSEED
-    run_pass "Wrapper only -- format-deniability" ./bench/build/bench_wrapper
-    exit 0
+# ITB_WITH_MAC=true derives MAC/AEAD profile counterparts. When
+# ITB_PROFILE is set explicitly by the caller, it wins over the
+# derivation and applies to both shapes (expert override).
+: "${ITB_WITH_MAC:=false}"
+if [ -n "${ITB_PROFILE:-}" ]; then
+    ITB_MSG_PROFILE_DEFAULT="${ITB_PROFILE}"
+    ITB_STREAM_PROFILE_DEFAULT="${ITB_PROFILE}"
+elif [ "${ITB_WITH_MAC}" = "true" ]; then
+    ITB_MSG_PROFILE_DEFAULT="singlemsg-triple-mac-v1"
+    ITB_STREAM_PROFILE_DEFAULT="streaming-aead-triple-mac-v1"
+else
+    ITB_MSG_PROFILE_DEFAULT="singlemsg-triple-nomac-v1"
+    ITB_STREAM_PROFILE_DEFAULT="streaming-noaead-triple-v1"
 fi
 
-# Pass 1: Single Ouroboros, no LockSeed.
-unset ITB_LOCKSEED
-run_pass "Single (no LockSeed)" ./bench/build/bench_single
-
-# Pass 2: Single Ouroboros, LockSeed enabled.
-ITB_LOCKSEED=1 run_pass "Single (LockSeed)" ./bench/build/bench_single
-
-# Pass 3: Triple Ouroboros, no LockSeed.
-unset ITB_LOCKSEED
-run_pass "Triple (no LockSeed)" ./bench/build/bench_triple
-
-# Pass 4: Triple Ouroboros, LockSeed enabled.
-ITB_LOCKSEED=1 run_pass "Triple (LockSeed)" ./bench/build/bench_triple
+# Build every bench binary via make (no run), then invoke each with
+# its shape-appropriate ITB_PROFILE so the two shapes can carry
+# independent MAC / no-MAC profiles in a single script pass.
+make benches/build/bench_message benches/build/bench_stream \
+     benches/build/bench_stream_one_shot
+export ITB_PROFILE="${ITB_MSG_PROFILE_DEFAULT}"
+./benches/build/bench_message
+export ITB_PROFILE="${ITB_STREAM_PROFILE_DEFAULT}"
+./benches/build/bench_stream
+./benches/build/bench_stream_one_shot
