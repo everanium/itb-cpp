@@ -44,15 +44,29 @@ static int run()
     TEST_ASSERT(std::equal(plain.begin(), plain.end(), back_into.begin()),
                 "into payload mismatch");
 
-    /* A tampered wire is rejected. */
-    wire[wire.size() / 2] ^= 0x01u;
-    bool rejected = false;
-    try {
-        (void)receiver.decrypt_stream_one_shot(itb::as_bytes(wire));
-    } catch (const itb::Error &) {
-        rejected = true;
+    /* A bit flip in authenticated wire content is rejected. A single
+     * flip can land in the container's CSPRNG residue — where the
+     * decrypt legitimately completes clean — so successive flip
+     * positions are probed until one is rejected. The probe is
+     * black-box. */
+    bool seen_failure = false;
+    for (std::size_t attempt = 0; attempt < 32 && !seen_failure; ++attempt) {
+        const std::size_t flip_pos =
+            (wire.size() * 3 / 4 + attempt * 1031) % wire.size();
+        wire[flip_pos] ^= 0x01u;
+        try {
+            const std::vector<std::uint8_t> back_flip =
+                receiver.decrypt_stream_one_shot(itb::as_bytes(wire));
+            /* Flip landed in unauthenticated residue. */
+            TEST_ASSERT(back_flip == plain,
+                        "residue-flip decrypt must still round-trip");
+        } catch (const itb::Error &) {
+            seen_failure = true;
+        }
+        wire[flip_pos] ^= 0x01u; /* restore for the next probe */
     }
-    TEST_ASSERT(rejected, "tampered wire must be rejected");
+    TEST_ASSERT(seen_failure,
+                "no flip position produced an authentication failure");
     return 0;
 }
 
