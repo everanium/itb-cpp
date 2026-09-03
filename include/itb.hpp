@@ -46,7 +46,7 @@
 
 /* Binding version. Tracks the C++ wrapper; call itb::version() for
  * the underlying libitb library version. */
-#define ITB_CPP_VERSION "0.3.4"
+#define ITB_CPP_VERSION "0.3.5"
 
 namespace itb {
 
@@ -396,7 +396,7 @@ void register_profile(std::string_view name, const Opts &opts);
 /* Runtime + diagnostics                                               */
 /* ------------------------------------------------------------------ */
 
-/* The libitb library version string (e.g. "0.3.4"). */
+/* The libitb library version string (e.g. "0.3.5"). */
 std::string version();
 
 /* Sets the Go runtime's soft heap limit in bytes; returns the
