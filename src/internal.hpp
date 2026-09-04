@@ -13,7 +13,8 @@
 
 namespace itb::detail {
 
-/* Floor capacity for blob output buffers (init / rekey). */
+/* Floor capacity for blob / JSON output buffers (init / rekey / save /
+ * inspect / lookup / profiles). */
 inline constexpr std::size_t kBlobCap = 64 * 1024;
 
 /* Feed / drain slice size used by the pump loops. */

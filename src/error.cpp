@@ -23,9 +23,9 @@ const char *status_str(Status status) noexcept
     case Status::SeedWidthMix:      return "seed width mismatch";
     case Status::BadMac:            return "unknown MAC name or invalid MAC handle";
     case Status::MacFailure:        return "MAC verification failed";
-    case Status::Reserved11:
-    case Status::Reserved12:
-    case Status::Reserved13:
+    case Status::BlobMalformedRecipe:    return "blob recipe malformed";
+    case Status::RecipePrimitiveUnknown: return "blob recipe names an unknown primitive";
+    case Status::UnknownProfile:         return "unknown profile name";
     case Status::Reserved14:
     case Status::Reserved15:
     case Status::Reserved16:

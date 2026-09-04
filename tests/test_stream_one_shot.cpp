@@ -10,7 +10,7 @@ static int run()
 {
     itb::Pipeline sender = itb::Pipeline::init("streaming-aead-triple-mac-v1");
     itb::Pipeline receiver =
-        itb::Pipeline::open("streaming-aead-triple-mac-v1", sender.blob());
+        itb::Pipeline::load(itb::as_bytes(sender.save()));
 
     const std::size_t size = std::size_t{256} * 1024;
     const std::vector<std::uint8_t> plain = test_payload(size, 0xA5A5A5A5u);

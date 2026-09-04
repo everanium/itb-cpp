@@ -1,6 +1,6 @@
 /* Error-mapping surface: opaque-string relay, thrown itb::Error
- * status + diagnostic, close() semantics, duplicate profile
- * registration (with an 8-entry `innerHashes` constellation). */
+ * status + diagnostic, unknown profile, close() semantics, duplicate
+ * profile registration (with an 8-entry `hashes` constellation). */
 
 #include <algorithm>
 
@@ -21,14 +21,26 @@ static bool throws_status(Fn &&fn, itb::Status *got)
 
 static int run()
 {
-    /* Unknown profile → BadInput + non-empty diagnostic. */
+    /* Unknown profile → UnknownProfile + non-empty diagnostic, on init
+     * and on lookup alike. */
     itb::Status st = itb::Status::Ok;
     TEST_ASSERT(throws_status([] { (void)itb::Pipeline::init("no-such-profile"); },
                               &st),
                 "unknown profile must throw");
-    TEST_ASSERT(st == itb::Status::BadInput, "unknown profile: got %d",
+    TEST_ASSERT(st == itb::Status::UnknownProfile, "unknown profile: got %d",
                 static_cast<int>(st));
     TEST_ASSERT(!itb::last_error().empty(), "diagnostic must be non-empty");
+    TEST_ASSERT(throws_status([] { (void)itb::lookup("no-such-profile"); }, &st),
+                "lookup of an unknown profile must throw");
+    TEST_ASSERT(st == itb::Status::UnknownProfile, "lookup unknown: got %d",
+                static_cast<int>(st));
+
+    /* A negative maxWorkers opts value is clamped, not rejected. */
+    {
+        itb::Opts neg;
+        neg.set("maxWorkers", "-1");
+        (void)itb::Pipeline::init("singlemsg-triple-mac-v1", neg);
+    }
 
     /* Unknown opts key (typoed lowercase s) → BadInput. */
     itb::Opts bad;
@@ -49,13 +61,13 @@ static int run()
                     &st),
                 "unknown hash must be rejected");
 
-    /* A half-supplied master-override pair is rejected binding-side. */
+    /* A half-supplied master-override pair is rejected by libitb. */
     itb::Pipeline probe = itb::Pipeline::init("singlemsg-triple-mac-v1");
+    const std::vector<std::uint8_t> probe_blob = probe.save();
     const std::vector<std::uint8_t> perm(32, 0x33);
     TEST_ASSERT(throws_status(
                     [&] {
-                        (void)itb::Pipeline::open("singlemsg-triple-mac-v1",
-                                                  probe.blob(), {},
+                        (void)itb::Pipeline::load(itb::as_bytes(probe_blob),
                                                   itb::as_bytes(perm), {});
                     },
                     &st),
@@ -63,8 +75,8 @@ static int run()
     TEST_ASSERT(st == itb::Status::BadInput, "half-supplied masters: got %d",
                 static_cast<int>(st));
 
-    /* close() zeroes key material; cipher calls then throw
-     * TripleClosed, and close() stays idempotent. */
+    /* close() zeroes key material; cipher, save, and max_workers calls
+     * then throw TripleClosed, and close() stays idempotent. */
     probe.close();
     probe.close();
     TEST_ASSERT(throws_status(
@@ -73,24 +85,49 @@ static int run()
                 "cipher call after close must throw");
     TEST_ASSERT(st == itb::Status::TripleClosed, "after close: got %d",
                 static_cast<int>(st));
+    TEST_ASSERT(throws_status([&] { (void)probe.save(); }, &st),
+                "save after close must throw");
+    TEST_ASSERT(st == itb::Status::TripleClosed, "save after close: got %d",
+                static_cast<int>(st));
+    TEST_ASSERT(throws_status([&] { probe.max_workers(2); }, &st),
+                "max_workers after close must throw");
+    TEST_ASSERT(st == itb::Status::TripleClosed, "max_workers after close: got %d",
+                static_cast<int>(st));
 
-    /* RegisterProfile with an 8-entry width-256 innerHashes
-     * constellation, layers off. */
-    itb::Opts reg;
-    reg.set("mode", "singlemsg-nomac")
-        .set("width", "256")
-        .set("innerHashes",
-             "blake3,blake2s,areion256,blake2b256,"
-             "chacha20,blake3,blake2s,areion256")
-        .set("keyBits", "1024")
-        .set("parallaxOn", "false")
-        .set("wrapperOn", "false");
+    /* register_profile with an 8-entry width-256 hashes constellation,
+     * layers off. The record is a profile JSON object. */
+    const std::string_view reg =
+        "{\"mode\":\"singlemsg-nomac\",\"width\":256,"
+        "\"hashes\":[\"blake3\",\"blake2s\",\"areion256\",\"blake2b256\","
+        "\"chacha20\",\"blake3\",\"blake2s\",\"areion256\"],"
+        "\"keybits\":1024,\"wrapper\":false,\"parallax\":false}";
     itb::register_profile("cpp-binding-test-mixed", reg);
+
+    /* The registered record reads back with its name filled in. */
+    const std::string looked = itb::lookup("cpp-binding-test-mixed");
+    TEST_ASSERT(looked.find("\"name\":\"cpp-binding-test-mixed\"") != std::string::npos,
+                "lookup must carry the name: %s", looked.c_str());
+    TEST_ASSERT(looked.find("\"hashes\":[\"blake3\",\"blake2s\"") != std::string::npos,
+                "lookup must carry the hashes: %s", looked.c_str());
+
+    /* A non-empty name inside the record must equal the argument. */
+    TEST_ASSERT(throws_status(
+                    [&] {
+                        itb::register_profile(
+                            "cpp-binding-test-mismatch",
+                            "{\"name\":\"other\",\"mode\":\"singlemsg-nomac\","
+                            "\"width\":512,\"hash\":\"areion512\",\"keybits\":1024,"
+                            "\"wrapper\":false,\"parallax\":false}");
+                    },
+                    &st),
+                "name mismatch must throw");
+    TEST_ASSERT(st == itb::Status::BadInput, "name mismatch: got %d",
+                static_cast<int>(st));
 
     /* The registered profile round-trips. */
     itb::Pipeline sender = itb::Pipeline::init("cpp-binding-test-mixed");
     itb::Pipeline receiver =
-        itb::Pipeline::open("cpp-binding-test-mixed", sender.blob());
+        itb::Pipeline::load(itb::as_bytes(sender.save()));
     const std::string_view plain = "custom profile";
     std::vector<std::uint8_t> wire =
         sender.encrypt_message(itb::as_bytes(plain));

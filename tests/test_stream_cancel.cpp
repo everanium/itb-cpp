@@ -18,7 +18,7 @@ static int run()
 
     /* The Pipeline stays usable after the cancelled session. */
     itb::Pipeline receiver =
-        itb::Pipeline::open("streaming-aead-triple-mac-v1", sender.blob());
+        itb::Pipeline::load(itb::as_bytes(sender.save()));
 
     const std::string_view plain = "after cancel";
     std::vector<std::uint8_t> wire =

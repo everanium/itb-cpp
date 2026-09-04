@@ -13,7 +13,7 @@
 static int message_into_round_trips(const char *profile)
 {
     itb::Pipeline sender = itb::Pipeline::init(profile);
-    itb::Pipeline receiver = itb::Pipeline::open(profile, sender.blob());
+    itb::Pipeline receiver = itb::Pipeline::load(itb::as_bytes(sender.save()));
 
     static const std::size_t sizes[] = { 1, 4 * 1024, 256 * 1024 };
     const std::size_t max_size = 256 * 1024;
@@ -44,7 +44,7 @@ static int message_into_round_trips(const char *profile)
 static int pump_into_round_trips(const char *profile)
 {
     itb::Pipeline sender = itb::Pipeline::init(profile);
-    itb::Pipeline receiver = itb::Pipeline::open(profile, sender.blob());
+    itb::Pipeline receiver = itb::Pipeline::load(itb::as_bytes(sender.save()));
 
     /* 3 MiB spans several internal pump slices. */
     static const std::size_t sizes[] = { 1, 4 * 1024, 3 * 1024 * 1024 };
@@ -78,7 +78,7 @@ static int pump_into_round_trips(const char *profile)
 static int into_vector_parity(const char *profile)
 {
     itb::Pipeline sender = itb::Pipeline::init(profile);
-    itb::Pipeline receiver = itb::Pipeline::open(profile, sender.blob());
+    itb::Pipeline receiver = itb::Pipeline::load(itb::as_bytes(sender.save()));
 
     const std::size_t size = 16 * 1024;
     const std::vector<std::uint8_t> plain = test_payload(size, 42);
@@ -107,7 +107,7 @@ static int into_vector_parity(const char *profile)
 static int empty_message_rejected(const char *profile)
 {
     itb::Pipeline sender = itb::Pipeline::init(profile);
-    itb::Pipeline receiver = itb::Pipeline::open(profile, sender.blob());
+    itb::Pipeline receiver = itb::Pipeline::load(itb::as_bytes(sender.save()));
 
     std::vector<std::uint8_t> scratch(itb::out_bound(1024));
 

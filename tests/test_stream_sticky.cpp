@@ -75,7 +75,7 @@ static int run()
 {
     itb::Pipeline sender = itb::Pipeline::init("streaming-aead-triple-mac-v1");
     itb::Pipeline receiver =
-        itb::Pipeline::open("streaming-aead-triple-mac-v1", sender.blob());
+        itb::Pipeline::load(itb::as_bytes(sender.save()));
 
     const std::size_t size = 65536;
     std::vector<std::uint8_t> plain(size);

@@ -13,8 +13,7 @@
  *     #include <itb.hpp>
  *
  *     itb::Pipeline sender = itb::Pipeline::init("singlemsg-triple-mac-v1");
- *     itb::Pipeline receiver =
- *         itb::Pipeline::open("singlemsg-triple-mac-v1", sender.blob());
+ *     itb::Pipeline receiver = itb::Pipeline::load(itb::as_bytes(sender.save()));
  *
  *     std::vector<std::uint8_t> wire =
  *         sender.encrypt_message(itb::as_bytes("hi"));
@@ -46,7 +45,7 @@
 
 /* Binding version. Tracks the C++ wrapper; call itb::version() for
  * the underlying libitb library version. */
-#define ITB_CPP_VERSION "0.3.5"
+#define ITB_CPP_VERSION "0.4.1"
 
 namespace itb {
 
@@ -54,9 +53,9 @@ namespace itb {
 /* Status codes                                                        */
 /* ------------------------------------------------------------------ */
 /* Mirror cmd/cshared/internal/capi/errors.go numerically. Codes
- * 11..17 are a reserved sentinel block; 19..22 belong to the native
- * Blob surface (not wrapped here but relayed verbatim if libitb ever
- * returns them). */
+ * 11..13 are the Triple blob-record / registry sentinels, 14..17 a
+ * reserved block; 19..22 belong to the native Blob surface (not
+ * wrapped here but relayed verbatim if libitb ever returns them). */
 enum class Status : int {
     Ok               = 0,
     BadHash          = 1,
@@ -69,9 +68,9 @@ enum class Status : int {
     SeedWidthMix     = 8,
     BadMac           = 9,
     MacFailure       = 10,
-    Reserved11       = 11,
-    Reserved12       = 12,
-    Reserved13       = 13,
+    BlobMalformedRecipe    = 11,
+    RecipePrimitiveUnknown = 12,
+    UnknownProfile         = 13,
     Reserved14       = 14,
     Reserved15       = 15,
     Reserved16       = 16,
@@ -147,10 +146,11 @@ std::size_t out_bound(std::size_t payload) noexcept;
 /* Opts builder                                                        */
 /* ------------------------------------------------------------------ */
 /* Accumulates key=value pairs into the URL-query-encoded opts string
- * consumed by init / open / register_profile. The builder performs no
- * validation — Go rejects unknown keys and bad values with a
- * diagnostic relayed through the thrown itb::Error. A plain value
- * type: it owns only the query string, no Go-side handle. */
+ * consumed by Pipeline::init. The builder performs no validation — Go
+ * rejects unknown keys and bad values with a diagnostic relayed
+ * through the thrown itb::Error. A plain value type: it owns only the
+ * query string, no Go-side handle. Profile registration takes a
+ * profile JSON object instead (see register_profile). */
 
 class Opts {
 public:
@@ -264,15 +264,23 @@ public:
     /* Constructs a fresh Pipeline against the named profile. */
     static Pipeline init(std::string_view profile, const Opts &opts = {});
 
-    /* Reconstructs a Pipeline from a blob produced by a sender's
-     * init / rekey. Pass empty masters to use the blob-embedded ones;
-     * to override, both masters must be supplied non-empty (a
-     * half-supplied pair is rejected). */
-    static Pipeline open(std::string_view profile,
-                         std::span<const std::byte> blob,
-                         const Opts &opts = {},
+    /* Reconstructs a Pipeline from a blob produced by save / rekey.
+     * Pass empty masters to use the blob-embedded ones; to override,
+     * supply both (a half-supplied pair is rejected by libitb). The
+     * profile shape travels inside the blob — no profile name, no
+     * opts. A blob whose record names a primitive absent from the
+     * local build throws Status::RecipePrimitiveUnknown; a record
+     * failing the profile field rules Status::BlobMalformedRecipe. */
+    static Pipeline load(std::span<const std::byte> blob,
                          std::span<const std::byte> perm_master = {},
                          std::span<const std::byte> wrap_master = {});
+
+    /* load for a blob stored at path; the file is read inside libitb
+     * (a missing or unreadable file throws Status::BadInput with the
+     * diagnostic attached). */
+    static Pipeline load_f(std::string_view path,
+                           std::span<const std::byte> perm_master = {},
+                           std::span<const std::byte> wrap_master = {});
 
     ~Pipeline();
 
@@ -281,18 +289,28 @@ public:
     Pipeline(const Pipeline &) = delete;
     Pipeline &operator=(const Pipeline &) = delete;
 
-    /* The exported session-bundle blob for the receiver side. The
-     * view stays valid until the next rekey, move, or destruction. */
-    std::span<const std::byte> blob() const noexcept
-    {
-        return as_bytes(blob_);
-    }
+    /* The current session-bundle blob for the receiver side (the init
+     * blob, or the bytes of the latest rekey). A closed Pipeline
+     * throws Status::TripleClosed. */
+    std::vector<std::uint8_t> save() const;
 
-    /* Rotates the parallax + wrapper masters and refreshes the blob.
-     * Must not run concurrently with cipher calls or open stream
-     * sessions on the same Pipeline. */
-    void rekey(std::span<const std::byte> perm_master,
-               std::span<const std::byte> wrap_master);
+    /* Writes the current blob to path inside libitb (mode 0600; the
+     * containing directory must exist). File-system failures throw
+     * Status::BadInput with the diagnostic attached. */
+    void save_f(std::string_view path) const;
+
+    /* Sets the worker cap for every subsequent cipher call. n is
+     * clamped by libitb (<= 0 selects auto, > 256 becomes 256); only
+     * the handle state is reported. The cap is per-machine and never
+     * travels in the blob. */
+    void max_workers(int n) const;
+
+    /* Rotates the parallax + wrapper masters and returns the fresh
+     * blob (also available through save). Must not run concurrently
+     * with cipher calls or open stream sessions on the same
+     * Pipeline. */
+    std::vector<std::uint8_t> rekey(std::span<const std::byte> perm_master,
+                                    std::span<const std::byte> wrap_master);
 
     /* Single Message encrypt: one call, one self-contained wire. */
     std::vector<std::uint8_t> encrypt_message(std::span<const std::byte> plain) const;
@@ -380,23 +398,43 @@ private:
     Pipeline() = default;
 
     std::uintptr_t handle_ = 0;
-    std::vector<std::uint8_t> blob_;
 };
 
 /* ------------------------------------------------------------------ */
-/* Profile registration                                                */
+/* Profile records                                                     */
 /* ------------------------------------------------------------------ */
+/* A profile record is the JSON object libitb accepts in
+ * register_profile, returns from lookup / inspect, and embeds in
+ * every blob: keys name / mode / width / hash / hashes / keybits /
+ * mac / tagstub / chunk / wrapper / outer / parallax / palette /
+ * segment. Optional keys are omitted when empty / zero. The binding
+ * treats the record as an opaque string; every field rule is
+ * enforced by libitb. */
 
-/* Registers a user-defined Triple profile under name; the opts follow
- * the register-profile grammar validated by Go. A duplicate name
- * throws Status::ProfileExists. */
-void register_profile(std::string_view name, const Opts &opts);
+/* Decodes the profile record embedded in blob without constructing a
+ * Pipeline. No registry read, no primitive probe. */
+std::string inspect(std::span<const std::byte> blob);
+
+/* Registers a user-defined Triple profile under name from a profile
+ * JSON record (a non-empty "name" key inside the record must equal
+ * name). A duplicate name throws Status::ProfileExists. Named
+ * register_profile because `register` is a C++ keyword. */
+void register_profile(std::string_view name, std::string_view profile_json);
+
+/* The profile registered under name — a shipped catalogue entry or a
+ * prior register_profile — as its JSON record. An unregistered name
+ * throws Status::UnknownProfile. */
+std::string lookup(std::string_view name);
+
+/* The sorted list of every registered profile name as a JSON array
+ * of strings. */
+std::string profiles();
 
 /* ------------------------------------------------------------------ */
 /* Runtime + diagnostics                                               */
 /* ------------------------------------------------------------------ */
 
-/* The libitb library version string (e.g. "0.3.5"). */
+/* The libitb library version string (e.g. "0.4.1"). */
 std::string version();
 
 /* Sets the Go runtime's soft heap limit in bytes; returns the
@@ -406,18 +444,6 @@ std::int64_t set_memory_limit(std::int64_t bytes) noexcept;
 /* Sets the Go GC trigger percentage; returns the previous value. A
  * negative value queries without changing. */
 int set_gc_percent(int pct) noexcept;
-
-/* Diagnostic registry iteration for CLI tooling (the binding itself
- * performs no primitive-name validation or enumeration). */
-std::size_t hash_count() noexcept;
-
-/* Canonical name of the index-th shipped hash primitive; throws on an
- * out-of-range index. */
-std::string hash_name(std::size_t index);
-
-/* Native state width in bits of the index-th shipped hash primitive;
- * 0 when index is out of range. */
-int hash_width(std::size_t index) noexcept;
 
 } // namespace itb
 

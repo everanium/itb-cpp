@@ -1,4 +1,4 @@
-/* init → rekey → open receiver with the rotated blob → round trip. */
+/* init → rekey → load receiver with the rotated blob → round trip. */
 
 #include <algorithm>
 
@@ -8,19 +8,16 @@ static int run()
 {
     itb::Pipeline sender = itb::Pipeline::init("singlemsg-triple-mac-v1");
 
-    const std::span<const std::byte> before_view = sender.blob();
-    const std::vector<std::byte> before(before_view.begin(), before_view.end());
+    const std::vector<std::uint8_t> before = sender.save();
 
     const std::vector<std::uint8_t> perm(32, 0x11);
     const std::vector<std::uint8_t> wrap(32, 0x22);
-    sender.rekey(itb::as_bytes(perm), itb::as_bytes(wrap));
-    const std::span<const std::byte> after = sender.blob();
-    TEST_ASSERT(after.size() != before.size() ||
-                    !std::equal(after.begin(), after.end(), before.begin()),
-                "rekey must refresh the blob");
+    const std::vector<std::uint8_t> rotated =
+        sender.rekey(itb::as_bytes(perm), itb::as_bytes(wrap));
+    TEST_ASSERT(rotated != before, "rekey must refresh the blob");
+    TEST_ASSERT(sender.save() == rotated, "save must report the rotated blob");
 
-    itb::Pipeline receiver =
-        itb::Pipeline::open("singlemsg-triple-mac-v1", sender.blob());
+    itb::Pipeline receiver = itb::Pipeline::load(itb::as_bytes(rotated));
 
     const std::string_view plain = "post-rekey payload";
     std::vector<std::uint8_t> wire =

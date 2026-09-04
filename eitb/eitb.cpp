@@ -4,12 +4,14 @@
  * Subcommands:
  *
  *   eitb version                                   library + binding versions
- *   eitb hashes                                    shipped hash primitive roster
+ *   eitb profiles                                  registered profile catalogue
  *   eitb encrypt <profile> <in-file> <out-file>    Single Message encrypt
  *   eitb decrypt <profile> <blob-hex> <in-file> <out-file>
  *
  * `encrypt` prints the session blob to stderr as hex; feed that hex
- * back to `decrypt` on the receiving side.
+ * back to `decrypt` on the receiving side. `profiles` lists the
+ * registered profile catalogue one name per line; the profiles that
+ * carry a cipher surface are the ones `encrypt` / `decrypt` accept.
  */
 
 #include <cstdio>
@@ -29,7 +31,7 @@ int usage()
 {
     std::fprintf(stderr,
                  "usage: eitb version\n"
-                 "       eitb hashes\n"
+                 "       eitb profiles\n"
                  "       eitb encrypt <profile> <in-file> <out-file>\n"
                  "       eitb decrypt <profile> <blob-hex> <in-file> <out-file>\n");
     return 2;
@@ -119,12 +121,26 @@ int cmd_version()
     return 0;
 }
 
-int cmd_hashes()
+/* Prints the registered profile catalogue one name per line in the
+ * sorted order itb::profiles returns. The catalogue arrives as a JSON
+ * array of strings; profile names are restricted to [a-z0-9-], so
+ * each quoted run is one complete name and no escape handling is
+ * needed. */
+int cmd_profiles()
 {
-    const std::size_t n = itb::hash_count();
-    for (std::size_t i = 0; i < n; i++) {
-        std::printf("%2zu  %-12s %d bits\n", i, itb::hash_name(i).c_str(),
-                    itb::hash_width(i));
+    const std::string json = itb::profiles();
+    std::size_t pos = 0;
+    for (;;) {
+        const std::size_t open = json.find('"', pos);
+        if (open == std::string::npos) {
+            break;
+        }
+        const std::size_t close = json.find('"', open + 1);
+        if (close == std::string::npos) {
+            break;
+        }
+        std::printf("%s\n", json.substr(open + 1, close - open - 1).c_str());
+        pos = close + 1;
     }
     return 0;
 }
@@ -152,7 +168,7 @@ int cmd_encrypt(const char *profile, const char *infile, const char *outfile)
         : pipe.encrypt_message(itb::as_bytes(plain));
     int rc = write_file(outfile, wire);
     if (rc == 0) {
-        for (std::byte b : pipe.blob()) {
+        for (std::uint8_t b : pipe.save()) {
             std::fprintf(stderr, "%02x", static_cast<unsigned>(b));
         }
         std::fprintf(stderr, "\n");
@@ -199,7 +215,9 @@ int cmd_decrypt(const char *profile, const char *blob_hex,
     if (!read_file(infile, wire)) {
         return 1;
     }
-    itb::Pipeline pipe = itb::Pipeline::open(profile, itb::as_bytes(blob));
+    /* The profile shape travels inside the blob; the profile argument
+     * only selects the Single Message or streaming cipher pair. */
+    itb::Pipeline pipe = itb::Pipeline::load(itb::as_bytes(blob));
     std::vector<std::uint8_t> plain = is_streaming_profile(profile)
         ? pipe.decrypt_stream_pump(itb::as_bytes(wire))
         : pipe.decrypt_message(itb::as_bytes(wire));
@@ -222,8 +240,8 @@ int main(int argc, char **argv)
         if (std::strcmp(argv[1], "version") == 0 && argc == 2) {
             return cmd_version();
         }
-        if (std::strcmp(argv[1], "hashes") == 0 && argc == 2) {
-            return cmd_hashes();
+        if (std::strcmp(argv[1], "profiles") == 0 && argc == 2) {
+            return cmd_profiles();
         }
         if (std::strcmp(argv[1], "encrypt") == 0 && argc == 5) {
             return cmd_encrypt(argv[2], argv[3], argv[4]);

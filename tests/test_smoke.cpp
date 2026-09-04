@@ -1,14 +1,14 @@
-/* init → blob → open → encrypt_message → decrypt_message round trip. */
+/* init → save → load → encrypt_message → decrypt_message round trip. */
 
 #include "test_util.hpp"
 
 static int run()
 {
     itb::Pipeline sender = itb::Pipeline::init("singlemsg-triple-mac-v1");
-    TEST_ASSERT(!sender.blob().empty(), "blob must be non-empty");
+    TEST_ASSERT(!sender.save().empty(), "blob must be non-empty");
 
     itb::Pipeline receiver =
-        itb::Pipeline::open("singlemsg-triple-mac-v1", sender.blob());
+        itb::Pipeline::load(itb::as_bytes(sender.save()));
 
     const std::string_view plain = "smoke round-trip payload";
 

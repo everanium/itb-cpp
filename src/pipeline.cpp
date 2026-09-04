@@ -1,6 +1,7 @@
 /*
- * pipeline.cpp — Triple Pipeline handle lifecycle plus the Single
- * Message cipher entries and profile registration.
+ * pipeline.cpp — Triple Pipeline handle lifecycle, persistence
+ * (save / load), the Single Message cipher entries, and the profile
+ * record entries (inspect / register_profile / lookup / profiles).
  *
  * Binding-side logic is limited to the four FFI-boundary inversions:
  * caller-allocated buffers with the codified retry-once on
@@ -21,61 +22,100 @@ using detail::ffi_bytes;
 using detail::ffi_str;
 
 /* ------------------------------------------------------------------ */
-/* init / open / lifecycle                                             */
+/* Caller-allocated-buffer helper                                      */
+/* ------------------------------------------------------------------ */
+
+namespace {
+
+/* Single retry-once dispatch site for every variable-size output
+ * buffer (init / rekey / save / inspect / lookup / profiles):
+ * pre-allocate kBlobCap, and on Status::BufferTooSmall retry once
+ * with the exact size libitb reported. */
+template <typename Fn>
+std::vector<std::uint8_t> buf_call(Fn &&fn, const char *what)
+{
+    std::vector<std::uint8_t> buf(detail::kBlobCap);
+    std::size_t n = 0;
+    int rc = fn(buf.data(), buf.size(), &n);
+    if (rc == static_cast<int>(Status::BufferTooSmall) && n > buf.size()) {
+        buf.resize(n);
+        rc = fn(buf.data(), buf.size(), &n);
+    }
+    check(rc, what);
+    if (n > buf.size()) {
+        fail(static_cast<int>(Status::Internal), what);
+    }
+    buf.resize(n);
+    buf.shrink_to_fit();
+    return buf;
+}
+
+std::string json_call(std::vector<std::uint8_t> bytes)
+{
+    return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+}
+
+/* The masters pair crosses as (perm, wrap, count): both absent → 0,
+ * otherwise 2 — libitb validates the pair. */
+std::size_t masters_count(std::span<const std::byte> perm,
+                          std::span<const std::byte> wrap) noexcept
+{
+    return (perm.empty() && wrap.empty()) ? 0 : 2;
+}
+
+} // namespace
+
+/* ------------------------------------------------------------------ */
+/* init / load / lifecycle                                             */
 /* ------------------------------------------------------------------ */
 
 Pipeline Pipeline::init(std::string_view profile, const Opts &opts)
 {
     const std::string prof(profile);
-    std::vector<std::uint8_t> blob(detail::kBlobCap);
-    std::size_t blob_len = 0;
     uintptr_t handle = 0;
-    int rc = ITB_Triple_Init(ffi_str(prof), ffi_str(opts.query()),
-                             blob.data(), blob.size(), &blob_len, &handle);
-    if (rc == static_cast<int>(Status::BufferTooSmall) && blob_len > blob.size()) {
-        /* Go closed the undersized attempt; the retry re-runs Init
-         * and yields a fresh session. */
-        blob.resize(blob_len);
-        handle = 0;
-        rc = ITB_Triple_Init(ffi_str(prof), ffi_str(opts.query()),
-                             blob.data(), blob.size(), &blob_len, &handle);
-    }
-    check(rc, "Pipeline::init");
-    blob.resize(blob_len);
-    blob.shrink_to_fit();
+    /* The init blob is not retained binding-side; save() reads the
+     * current bytes from libitb. On a buffer retry Go closes the
+     * undersized attempt and the re-run yields a fresh session. */
+    (void)buf_call(
+        [&](void *out, std::size_t cap, std::size_t *len) {
+            handle = 0;
+            return ITB_Triple_Init(ffi_str(prof), ffi_str(opts.query()),
+                                   out, cap, len, &handle);
+        },
+        "Pipeline::init");
     Pipeline pipe;
     pipe.handle_ = handle;
-    pipe.blob_ = std::move(blob);
     return pipe;
 }
 
-Pipeline Pipeline::open(std::string_view profile,
-                        std::span<const std::byte> blob,
-                        const Opts &opts,
+Pipeline Pipeline::load(std::span<const std::byte> blob,
                         std::span<const std::byte> perm_master,
                         std::span<const std::byte> wrap_master)
 {
-    const std::string prof(profile);
-    const bool perm_given = !perm_master.empty();
-    const bool wrap_given = !wrap_master.empty();
-    if (perm_given != wrap_given) {
-        /* Half-supplied override pair. */
-        fail(static_cast<int>(Status::BadInput), "Pipeline::open");
-    }
-    const std::size_t masters_count = perm_given ? 2 : 0;
     uintptr_t handle = 0;
-    int rc = ITB_Triple_Open(ffi_str(prof),
-                             ffi_bytes(blob), blob.size(),
-                             ffi_str(opts.query()),
+    int rc = ITB_Triple_Load(ffi_bytes(blob), blob.size(),
                              ffi_bytes(perm_master), perm_master.size(),
                              ffi_bytes(wrap_master), wrap_master.size(),
-                             masters_count, &handle);
-    check(rc, "Pipeline::open");
+                             masters_count(perm_master, wrap_master), &handle);
+    check(rc, "Pipeline::load");
     Pipeline pipe;
     pipe.handle_ = handle;
-    /* The Pipeline keeps its own copy of the blob for the accessor. */
-    const auto *first = reinterpret_cast<const std::uint8_t *>(blob.data());
-    pipe.blob_.assign(first, first + blob.size());
+    return pipe;
+}
+
+Pipeline Pipeline::load_f(std::string_view path,
+                          std::span<const std::byte> perm_master,
+                          std::span<const std::byte> wrap_master)
+{
+    const std::string p(path);
+    uintptr_t handle = 0;
+    int rc = ITB_Triple_LoadF(ffi_str(p),
+                              ffi_bytes(perm_master), perm_master.size(),
+                              ffi_bytes(wrap_master), wrap_master.size(),
+                              masters_count(perm_master, wrap_master), &handle);
+    check(rc, "Pipeline::load_f");
+    Pipeline pipe;
+    pipe.handle_ = handle;
     return pipe;
 }
 
@@ -89,8 +129,7 @@ Pipeline::~Pipeline()
     }
 }
 
-Pipeline::Pipeline(Pipeline &&other) noexcept
-    : handle_(other.handle_), blob_(std::move(other.blob_))
+Pipeline::Pipeline(Pipeline &&other) noexcept : handle_(other.handle_)
 {
     other.handle_ = 0;
 }
@@ -102,7 +141,6 @@ Pipeline &Pipeline::operator=(Pipeline &&other) noexcept
             (void)ITB_Triple_Free(handle_);
         }
         handle_ = other.handle_;
-        blob_ = std::move(other.blob_);
         other.handle_ = 0;
     }
     return *this;
@@ -118,30 +156,40 @@ void Pipeline::close() noexcept
 }
 
 /* ------------------------------------------------------------------ */
-/* rekey                                                               */
+/* save / max_workers / rekey                                          */
 /* ------------------------------------------------------------------ */
 
-void Pipeline::rekey(std::span<const std::byte> perm_master,
-                     std::span<const std::byte> wrap_master)
+std::vector<std::uint8_t> Pipeline::save() const
 {
-    std::vector<std::uint8_t> blob(
-        blob_.size() > detail::kBlobCap ? blob_.size() : detail::kBlobCap);
-    std::size_t blob_len = 0;
-    int rc = ITB_Triple_Rekey(handle_,
-                              ffi_bytes(perm_master), perm_master.size(),
-                              ffi_bytes(wrap_master), wrap_master.size(),
-                              blob.data(), blob.size(), &blob_len);
-    if (rc == static_cast<int>(Status::BufferTooSmall) && blob_len > blob.size()) {
-        blob.resize(blob_len);
-        rc = ITB_Triple_Rekey(handle_,
-                              ffi_bytes(perm_master), perm_master.size(),
-                              ffi_bytes(wrap_master), wrap_master.size(),
-                              blob.data(), blob.size(), &blob_len);
-    }
-    check(rc, "Pipeline::rekey");
-    blob.resize(blob_len);
-    blob.shrink_to_fit();
-    blob_ = std::move(blob);
+    return buf_call(
+        [&](void *out, std::size_t cap, std::size_t *len) {
+            return ITB_Triple_Save(handle_, out, cap, len);
+        },
+        "Pipeline::save");
+}
+
+void Pipeline::save_f(std::string_view path) const
+{
+    const std::string p(path);
+    check(ITB_Triple_SaveF(handle_, ffi_str(p)), "Pipeline::save_f");
+}
+
+void Pipeline::max_workers(int n) const
+{
+    check(ITB_Triple_MaxWorkers(handle_, n), "Pipeline::max_workers");
+}
+
+std::vector<std::uint8_t> Pipeline::rekey(std::span<const std::byte> perm_master,
+                                          std::span<const std::byte> wrap_master)
+{
+    return buf_call(
+        [&](void *out, std::size_t cap, std::size_t *len) {
+            return ITB_Triple_Rekey(handle_,
+                                    ffi_bytes(perm_master), perm_master.size(),
+                                    ffi_bytes(wrap_master), wrap_master.size(),
+                                    out, cap, len);
+        },
+        "Pipeline::rekey");
 }
 
 /* ------------------------------------------------------------------ */
@@ -263,14 +311,42 @@ std::size_t Pipeline::decrypt_stream_one_shot_into(std::span<const std::byte> wi
 }
 
 /* ------------------------------------------------------------------ */
-/* Profile registration                                                */
+/* Profile records: inspect / register_profile / lookup / profiles     */
 /* ------------------------------------------------------------------ */
 
-void register_profile(std::string_view name, const Opts &opts)
+std::string inspect(std::span<const std::byte> blob)
 {
-    const std::string prof(name);
-    check(ITB_Triple_RegisterProfile(ffi_str(prof), ffi_str(opts.query())),
-          "register_profile");
+    return json_call(buf_call(
+        [&](void *out, std::size_t cap, std::size_t *len) {
+            return ITB_Triple_Inspect(ffi_bytes(blob), blob.size(), out, cap, len);
+        },
+        "inspect"));
+}
+
+void register_profile(std::string_view name, std::string_view profile_json)
+{
+    const std::string n(name);
+    const std::string json(profile_json);
+    check(ITB_Triple_Register(ffi_str(n), ffi_str(json)), "register_profile");
+}
+
+std::string lookup(std::string_view name)
+{
+    const std::string n(name);
+    return json_call(buf_call(
+        [&](void *out, std::size_t cap, std::size_t *len) {
+            return ITB_Triple_Lookup(ffi_str(n), out, cap, len);
+        },
+        "lookup"));
+}
+
+std::string profiles()
+{
+    return json_call(buf_call(
+        [&](void *out, std::size_t cap, std::size_t *len) {
+            return ITB_Triple_Profiles(out, cap, len);
+        },
+        "profiles"));
 }
 
 } // namespace itb

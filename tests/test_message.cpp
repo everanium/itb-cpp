@@ -8,7 +8,7 @@
 static int round_trip(const char *profile, std::size_t size)
 {
     itb::Pipeline sender = itb::Pipeline::init(profile);
-    itb::Pipeline receiver = itb::Pipeline::open(profile, sender.blob());
+    itb::Pipeline receiver = itb::Pipeline::load(itb::as_bytes(sender.save()));
 
     const std::vector<std::uint8_t> plain =
         test_payload(size, static_cast<std::uint64_t>(size));
