@@ -1,5 +1,5 @@
 /*
- * itb3.hpp — public C++ header for the ITB C++ binding.
+ * Public C++ header for the ITB C++ binding.
  *
  * Thin proxy over the libitb3 shared library's `ITB_Triple_*` surface
  * (cmd/cshared). The binding links against libitb3.so at compile time
@@ -85,10 +85,6 @@ enum class Status : int {
     ProfileExists    = 26,
     Internal         = 99,
 };
-
-/* Short static label for a status code. Never null; the pointer is a
- * string literal. */
-const char *status_str(Status status) noexcept;
 
 /* The Go-side diagnostic recorded by the most recent failing libitb3
  * call. Process-global last-write-wins on the Go side — fetch it
@@ -302,7 +298,7 @@ public:
     /* Sets the worker cap for every subsequent cipher call. n is
      * clamped by libitb3 (<= 0 selects auto, > 256 becomes 256); only
      * the handle state is reported. The cap is per-machine and never
-     * travels in the blob. */
+     * written to the blob. */
     void max_workers(int n) const;
 
     /* Rotates the parallax + wrapper masters and returns the fresh
@@ -428,12 +424,22 @@ std::string lookup(std::string_view name);
  * of strings. */
 std::string profiles();
 
+/* The shipped hash-primitive registry in canonical order as a JSON
+ * array of strings. The registry is the authority on which names
+ * Pipeline::init accepts for the innerHash opts key. */
+std::string hash_names();
+
 /* ------------------------------------------------------------------ */
 /* Runtime + diagnostics                                               */
 /* ------------------------------------------------------------------ */
 
 /* The libitb3 library version string (e.g. "0.5.1"). */
 std::string version();
+
+/* The fill cipher the auto DRBG tier selected on this host
+ * ("aes-256-ctr" or "chacha20"): the tier a Pipeline uses when its
+ * drbg option is empty, resolved per host and recorded in no blob. */
+std::string drbg_auto_tier();
 
 /* Sets the Go runtime's soft heap limit in bytes; returns the
  * previous limit. A negative value queries without changing. */
@@ -442,6 +448,31 @@ std::int64_t set_memory_limit(std::int64_t bytes) noexcept;
 /* Sets the Go GC trigger percentage; returns the previous value. A
  * negative value queries without changing. */
 int set_gc_percent(int pct) noexcept;
+
+/* Sets the Go runtime's GOMAXPROCS; returns the previous value. Zero
+ * or a negative value queries without changing. */
+int set_gomaxprocs(int n) noexcept;
+
+/* Writes the Go runtime's heap profile (pprof format) to path after
+ * one forced garbage collection. An empty path falls back to the
+ * ITB_MEMPROFILE environment variable; a path that is still empty, or
+ * a file-system failure, throws Error with Status::BadInput. */
+void write_heap_profile(std::string_view path);
+
+/* Number of std::int64_t slots pool_stats fills. Size the destination
+ * from this call, never from a constant. */
+std::size_t pool_stats_len() noexcept;
+
+/* Copies the library's pool hit / miss counters into dst and returns
+ * the slot count written. Every counter is a monotonically increasing
+ * total since library load; difference two snapshots. Slot layout,
+ * with T the tier count in slot 0: tier i holds starter width,
+ * checkouts, constructor misses, regrow replacements and bytes
+ * allocated at slots 1 + 5*i .. 1 + 5*i + 4; the scratch byte pool's
+ * get / new / regrow / regrow-bytes follow at 1 + 5*T, and the
+ * parallax chunk pool's at 1 + 5*T + 4. A dst shorter than
+ * pool_stats_len() throws Error with Status::BufferTooSmall. */
+std::size_t pool_stats(std::span<std::int64_t> dst);
 
 } // namespace itb
 

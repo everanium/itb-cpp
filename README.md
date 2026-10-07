@@ -14,7 +14,7 @@ loading. Every hash-name / MAC-name / cipher-name / profile-name is an
 opaque `std::string` passed through to Go for validation; the binding
 carries no ITB construction logic. The public surface is one
 RAII-managed `itb::Pipeline` (init / load / save / rekey / close, Single
-Message encrypt / decrypt, whole-buffer stream pumps, incremental
+Message encrypt / decrypt, one-shot and whole-buffer stream pumps, incremental
 `itb::EncryptStream` / `itb::DecryptStream` sessions with write / end /
 read), an `itb::Opts` query-string builder, `itb::register_profile`,
 and the Go runtime knobs. Every fallible entry throws `itb::Error`
@@ -160,12 +160,10 @@ same name before opening. Attempting to `load` such a blob through
 this binding throws `itb::Error` with
 `itb::Status::RecipePrimitiveUnknown`.
 
-**Runtime tuning.** The worker cap is per-machine and never travels
-in the blob; the receiver may pick its own after `load`:
-
-```cpp
-receiver.max_workers(4);   // clamped by libitb3; <= 0 selects auto
-```
+**Runtime tuning.** `receiver.max_workers(n)` sets the worker cap for
+every subsequent cipher call (`n <= 0` selects auto, `n > 256` is
+clamped to 256); the receiver may pick its own worker cap after
+`load` — the cap is per-machine and never written to the blob.
 
 ## Profile registry
 
@@ -239,13 +237,17 @@ model; errors in the binding's own C++ frames are never suppressed.
 ./bindings/cpp/run_bench.sh
 ```
 
-Micro-benches: `message` (`encrypt_message_into`) and `stream_pump`
-(`encrypt_stream_pump_into`) throughput at 1 MiB / 16 MiB / 64 MiB,
-reported as an MB/s table on stdout. Each size case drives the
+Micro-benches: `message` (`encrypt_message_into`), `stream_pump`
+(`encrypt_stream_pump_into`) and `stream_one_shot`
+(`encrypt_stream_one_shot_into`) throughput at 1 MiB / 16 MiB /
+64 MiB, reported as an MB/s table on stdout. Each size case drives the
 reusable-buffer entry with one scratch buffer sized to the expansion
-bound, so the measurement excludes per-iteration allocation churn. The runner exports `ITB_GOMEMLIMIT=4GiB`
+bound, so the measurement excludes per-iteration allocation churn. The runner
+exports `ITB_GOMEMLIMIT=4GiB`
 + `ITB_GOGC=100` defaults (respecting caller overrides) and the bench
-binaries apply the same caps programmatically.
+binaries apply the same caps programmatically. See
+[`bindings/BENCH.md`](https://github.com/everanium/itb/blob/main/bindings/BENCH.md)
+for the fleet-wide configuration authority and comparison tables.
 
 ## itb3 CLI
 
@@ -257,6 +259,26 @@ payloads directly on disk (`-i` / `-o`) or through stdin / stdout,
 rotates outer masters, and inspects stored blobs. See
 [`cmd/itb3/README.md`](https://github.com/everanium/itb/blob/main/cmd/itb3/README.md) for the full
 subcommand reference.
+
+## loop utility
+
+A long-run stress harness under `bindings/cpp/loop/` holds one
+Pipeline handle for minutes, cycles encrypt → decrypt → compare
+round-trips through it, rotates the outer masters and reopens the
+handle from its session blob on a schedule, and reports whether the
+process survived with every byte intact. It is the binding-side
+counterpart of the Go harness under `tools/loop`: same flags, same
+round structure, same summary in both renderings.
+
+```bash
+cd bindings/cpp && make loop
+./run_loop.sh --duration 2m --shape both
+```
+
+`./loop/loop -h` lists every flag. Concurrency mode: **shared-handle** —
+`std::thread` workers call into one Pipeline handle concurrently, which
+libitb3 permits once the handle is constructed, so `--goroutines` is
+the thread count verbatim.
 
 ## eitb utility
 

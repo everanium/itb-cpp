@@ -121,4 +121,70 @@ static int run()
     return 0;
 }
 
-TEST_MAIN(run)
+/* Builds a register payload from an inspected profile: the record
+ * minus the name and the inspection-only nonce_bits / barrier_fill /
+ * container_mode keys, which sit contiguously between keybits and
+ * drbg. Empty when the keys are not in that order. */
+static std::string register_payload(const std::string &inspected)
+{
+    const std::size_t mode = inspected.find("\"mode\"");
+    const std::size_t cut = inspected.find("\"nonce_bits\"");
+    const std::size_t drbg = inspected.find("\"drbg\"");
+    if (mode == std::string::npos || cut == std::string::npos ||
+        drbg == std::string::npos || mode > cut || cut > drbg) {
+        return {};
+    }
+    return "{" + inspected.substr(mode, cut - mode) + inspected.substr(drbg);
+}
+
+/* The drbg recipe key: an Init under each named fill primitive
+ * round-trips through a loaded blob and is reported by inspect; the
+ * default leaves the key out of inspect and lookup; an inspected
+ * record re-registers under a new name and keeps the key. */
+static int run_drbg()
+{
+    for (const char *name : {"csprng", "aesitb128"}) {
+        itb::Opts opts;
+        opts.set("drbg", name);
+        itb::Pipeline sender = itb::Pipeline::init("singlemsg-triple-mac-v1", opts);
+        const std::vector<std::uint8_t> blob = sender.save();
+        itb::Pipeline receiver = itb::Pipeline::load(itb::as_bytes(blob));
+        if (round_trip(sender, receiver, name) != 0) {
+            return 1;
+        }
+        if (round_trip(receiver, sender, name) != 0) {
+            return 1;
+        }
+        const std::string inspected = itb::inspect(itb::as_bytes(blob));
+        const std::string want = std::string("\"drbg\":\"") + name + "\"";
+        TEST_ASSERT(inspected.find(want) != std::string::npos,
+                    "inspect must carry %s: %s", want.c_str(), inspected.c_str());
+        if (want == "\"drbg\":\"csprng\"") {
+            const std::string payload = register_payload(inspected);
+            TEST_ASSERT(!payload.empty(), "register payload: %s", inspected.c_str());
+            itb::register_profile("cpp-binding-test-drbg-copy", payload);
+            const std::string looked = itb::lookup("cpp-binding-test-drbg-copy");
+            TEST_ASSERT(looked.find(want) != std::string::npos,
+                        "lookup must keep the drbg key: %s", looked.c_str());
+        }
+    }
+
+    itb::Pipeline plain = itb::Pipeline::init("singlemsg-triple-mac-v1");
+    const std::string inspected = itb::inspect(itb::as_bytes(plain.save()));
+    TEST_ASSERT(inspected.find("\"drbg\"") == std::string::npos,
+                "default inspect must omit drbg: %s", inspected.c_str());
+    const std::string looked = itb::lookup("singlemsg-triple-mac-v1");
+    TEST_ASSERT(looked.find("\"drbg\"") == std::string::npos,
+                "shipped lookup must omit drbg: %s", looked.c_str());
+    return 0;
+}
+
+static int run_all()
+{
+    if (run() != 0) {
+        return 1;
+    }
+    return run_drbg();
+}
+
+TEST_MAIN(run_all)

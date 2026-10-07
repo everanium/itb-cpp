@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #
-# run_tests.sh -- Build and run every tests/test_*.cpp under
-# bindings/cpp.
+# Build and run every tests/test_*.cpp under bindings/cpp.
 #
 # Each tests/test_*.cpp is compiled to its own standalone executable
 # in tests/build/, then run in turn. Per-process isolation gives every

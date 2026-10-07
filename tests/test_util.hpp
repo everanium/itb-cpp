@@ -1,7 +1,7 @@
 /*
- * test_util.hpp — minimal assertion + payload helpers shared by the
- * binding's integration tests. No framework dependency: every test is
- * a standalone binary whose main() returns non-zero on failure.
+ * Minimal assertion + payload helpers shared by the binding's
+ * integration tests. No framework dependency: every test is a
+ * standalone binary whose main() returns non-zero on failure.
  */
 
 #ifndef ITB_TEST_UTIL_HPP

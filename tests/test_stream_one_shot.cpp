@@ -1,4 +1,4 @@
-/* Round trip through the one-shot stream entries on a Streaming AEAD
+/* Round trip through the whole-buffer stream entries on a Streaming AEAD
  * profile at 256 KiB, wire cross-check against the pump path, the
  * reusable-buffer *_into variants, and a tampered-wire rejection. */
 

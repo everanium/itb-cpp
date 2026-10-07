@@ -1,11 +1,11 @@
 /*
- * eitb — command-line demonstrator for the ITB C++ binding.
+ * Command-line demonstrator for the ITB C++ binding.
  *
  * Subcommands:
  *
- *   eitb version                                   library + binding versions
- *   eitb profiles                                  registered profile catalogue
- *   eitb encrypt <profile> <in-file> <out-file>    Single Message encrypt
+ *   eitb version
+ *   eitb profiles
+ *   eitb encrypt <profile> <in-file> <out-file>
  *   eitb decrypt <profile> <blob-hex> <in-file> <out-file>
  *
  * `encrypt` prints the session blob to stderr as hex; feed that hex
@@ -65,8 +65,9 @@ bool read_file(const char *path, std::vector<std::uint8_t> &out)
 }
 
 /* Profiles whose canonical name begins with "streaming-" route
- * through the one-shot streaming buffered pair instead of the Single
- * Message pair. */
+ * through the buffered stream-pump pair instead of the Single
+ * Message pair. The pump drives an incremental session internally
+ * and hands back the whole output in one buffer. */
 bool is_streaming_profile(const char *profile)
 {
     return std::string_view(profile).starts_with("streaming-");

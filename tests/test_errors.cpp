@@ -148,4 +148,30 @@ static int run()
     return 0;
 }
 
-TEST_MAIN(run)
+/* An unknown drbg name is relayed to Go and rejected there as
+ * RecipePrimitiveUnknown, with the token in the diagnostic. */
+static int run_drbg_unknown()
+{
+    itb::Opts opts;
+    opts.set("drbg", "nope");
+    itb::Status st = itb::Status::Ok;
+    TEST_ASSERT(throws_status(
+                    [&] { (void)itb::Pipeline::init("singlemsg-triple-mac-v1", opts); },
+                    &st),
+                "unknown drbg must throw");
+    TEST_ASSERT(st == itb::Status::RecipePrimitiveUnknown, "unknown drbg: got %d",
+                static_cast<int>(st));
+    TEST_ASSERT(itb::last_error().find("nope") != std::string::npos,
+                "diagnostic must name the token: %s", itb::last_error().c_str());
+    return 0;
+}
+
+static int run_all()
+{
+    if (run() != 0) {
+        return 1;
+    }
+    return run_drbg_unknown();
+}
+
+TEST_MAIN(run_all)

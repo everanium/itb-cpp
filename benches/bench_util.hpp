@@ -1,6 +1,6 @@
 /*
- * bench_util.hpp — shared timing + reporting helpers for the C++
- * binding micro-benchmarks. Wall-clock via
+ * Shared timing + reporting helpers for the C++ binding
+ * micro-benchmarks. Wall-clock via
  * clock_gettime(CLOCK_MONOTONIC); output is a fixed-width table:
  *
  *   bench             size     mb_per_sec

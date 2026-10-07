@@ -1,7 +1,7 @@
 /*
- * pipeline.cpp — Triple Pipeline handle lifecycle, persistence
- * (save / load), the Single Message cipher entries, and the profile
- * record entries (inspect / register_profile / lookup / profiles).
+ * Triple Pipeline handle lifecycle, persistence (save / load), the
+ * Single Message cipher entries, and the profile record entries
+ * (inspect / register_profile / lookup / profiles).
  *
  * Binding-side logic is limited to the four FFI-boundary inversions:
  * caller-allocated buffers with the codified retry-once on
@@ -347,6 +347,15 @@ std::string profiles()
             return ITB_Triple_Profiles(out, cap, len);
         },
         "profiles"));
+}
+
+std::string hash_names()
+{
+    return json_call(buf_call(
+        [&](void *out, std::size_t cap, std::size_t *len) {
+            return ITB_Triple_HashNames(out, cap, len);
+        },
+        "hash_names"));
 }
 
 } // namespace itb

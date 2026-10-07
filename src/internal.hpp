@@ -1,5 +1,5 @@
 /*
- * internal.hpp — shared internals of the ITB C++ binding.
+ * Shared internals of the ITB C++ binding.
  *
  * Not installed; consumers include only <itb3.hpp>. The binding links
  * against libitb3.so at compile time, so the generated libitb3.h

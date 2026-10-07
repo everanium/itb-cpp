@@ -1,6 +1,6 @@
 /*
- * error.cpp — status labels, status normalisation, last-error fetch,
- * and the Error-throwing failure path shared by every FFI call site.
+ * Status normalisation, last-error fetch, and the Error-throwing
+ * failure path shared by every FFI call site.
  */
 
 #include <array>
@@ -9,53 +9,27 @@
 
 namespace itb {
 
-const char *status_str(Status status) noexcept
-{
-    switch (status) {
-    case Status::Ok:                return "ok";
-    case Status::BadHash:           return "unknown hash name";
-    case Status::BadKeyBits:        return "invalid key bits";
-    case Status::BadHandle:         return "invalid handle";
-    case Status::BadInput:          return "invalid input";
-    case Status::BufferTooSmall:    return "output buffer too small";
-    case Status::EncryptFailed:     return "encrypt failed";
-    case Status::DecryptFailed:     return "decrypt failed";
-    case Status::SeedWidthMix:      return "seed width mismatch";
-    case Status::BadMac:            return "unknown MAC name or invalid MAC handle";
-    case Status::MacFailure:        return "MAC verification failed";
-    case Status::BlobMalformedRecipe:    return "blob recipe malformed";
-    case Status::RecipePrimitiveUnknown: return "blob recipe names an unknown primitive";
-    case Status::UnknownProfile:         return "unknown profile name";
-    case Status::Reserved14:
-    case Status::Reserved15:
-    case Status::Reserved16:
-    case Status::Reserved17:        return "reserved status";
-    case Status::BlobModeMismatch:  return "blob mode mismatch";
-    case Status::BlobMalformed:     return "malformed state blob";
-    case Status::BlobVersionTooNew: return "blob version too new";
-    case Status::BlobTooManyOpts:   return "too many blob export opts";
-    case Status::StreamTruncated:   return "stream truncated before terminator";
-    case Status::StreamAfterFinal:  return "stream chunk after terminator";
-    case Status::TripleClosed:      return "Triple Pipeline is closed";
-    case Status::ProfileExists:     return "profile name already registered";
-    case Status::Internal:          return "internal error";
-    }
-    return "unknown status";
-}
-
 std::string last_error()
 {
-    /* The libitb3 diagnostics are short sentences; 2 KiB covers every
-     * message the Go side emits. */
+    /* The diagnostic is the only text an error carries, so losing it
+     * to a short buffer would leave the caller holding a bare number.
+     * The library reports the size it needed, so ask again at that
+     * size rather than giving up: 2 KiB covers every sentence seen so
+     * far, and the retry covers the ones that have not been. */
     std::array<char, 2048> buf{};
     std::size_t need = 0;
     int rc = ITB_LastError(buf.data(), buf.size(), &need);
-    if (rc != 0) {
-        /* BufferTooSmall (diagnostic > 2 KiB) or a load failure —
-         * fall back to the empty string rather than partial bytes. */
-        return {};
+    if (rc == 0) {
+        return {buf.data()};
     }
-    return {buf.data()};
+    if (rc == static_cast<int>(Status::BufferTooSmall) && need > 1) {
+        std::string wide(need, '\0');
+        std::size_t wrote = 0;
+        if (ITB_LastError(wide.data(), wide.size(), &wrote) == 0) {
+            return std::string(wide.c_str());
+        }
+    }
+    return {};
 }
 
 namespace detail {
@@ -79,14 +53,8 @@ void fail(int rc, const char *what)
     std::string msg(what);
     msg += ": status ";
     msg += std::to_string(rc);
-    msg += " (";
-    msg += status_str(st);
-    msg += ")";
-    std::string diag = last_error();
-    if (!diag.empty()) {
-        msg += ": ";
-        msg += diag;
-    }
+    msg += ": ";
+    msg += last_error();
     throw Error(st, msg);
 }
 

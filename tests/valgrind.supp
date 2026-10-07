@@ -5,7 +5,7 @@
 # memcheck cannot model (stack copying, memclrNoHeapPointers over
 # arena memory, uninitialised spill slots around asm kernels), so
 # memcheck reports large volumes of Cond / Value / Addr noise from
-# Go-side code. The binding's own C frames are never suppressed: an
+# Go-side code. The binding's own C++ frames are never suppressed: an
 # error whose faulting frame is in libitb3_cpp.a, a test binary, or
 # libc still fails the run.
 
