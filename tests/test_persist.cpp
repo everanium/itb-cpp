@@ -64,10 +64,14 @@ static int run()
                 "inspect must carry the inspection-only nonce_bits field");
     TEST_ASSERT(inspected.find("\"barrier_fill\":") != std::string::npos,
                 "inspect must carry the inspection-only barrier_fill field");
+    TEST_ASSERT(inspected.find("\"container_mode\":1") != std::string::npos,
+                "inspect must carry container_mode 1 by default");
     TEST_ASSERT(looked.find("\"nonce_bits\":") == std::string::npos,
                 "lookup must not carry the inspection-only nonce_bits field");
     TEST_ASSERT(looked.find("\"barrier_fill\":") == std::string::npos,
                 "lookup must not carry the inspection-only barrier_fill field");
+    TEST_ASSERT(looked.find("\"container_mode\":") == std::string::npos,
+                "lookup must not carry the inspection-only container_mode field");
     try {
         (void)itb::inspect(itb::as_bytes("not a blob"));
         TEST_ASSERT(false, "inspect garbage must throw");
@@ -179,12 +183,27 @@ static int run_drbg()
     return 0;
 }
 
+static int run_mode()
+{
+    itb::Opts opts;
+    opts.set("mode", "2");
+    itb::Pipeline pipe = itb::Pipeline::init("singlemsg-triple-mac-v1", opts);
+    const auto blob = pipe.save();
+    const std::string inspected = itb::inspect(itb::as_bytes(blob));
+    TEST_ASSERT(inspected.find("\"container_mode\":2") != std::string::npos,
+                "inspect mode 2 must report container_mode 2: %s", inspected.c_str());
+    return 0;
+}
+
 static int run_all()
 {
     if (run() != 0) {
         return 1;
     }
-    return run_drbg();
+    if (run_drbg() != 0) {
+        return 1;
+    }
+    return run_mode();
 }
 
 TEST_MAIN(run_all)

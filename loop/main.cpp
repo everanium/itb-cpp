@@ -683,35 +683,6 @@ void log_pipeline_initialised(const std::string &profile,
     log_line(line);
 }
 
-/* Sets the inner blob's "mode" field of a wrap-layer session blob to
- * target_mode (1 = per-region, 2 = per-container) in place. The wrap
- * layer's profile record carries its own "mode" (a string), so the
- * search starts at the inner blob ("ib"); both shipped modes are one
- * digit wide, so the blob length does not change and the key material
- * in blob is never copied. Returns false when the inner blob or its
- * mode field is not found. */
-bool edit_inner_blob_mode(std::vector<std::uint8_t> &blob, int target_mode)
-{
-    const std::string_view text(reinterpret_cast<const char *>(blob.data()), blob.size());
-    constexpr std::string_view ib_key = "\"ib\":{";
-    constexpr std::string_view mode_key = "\"mode\":";
-    const std::size_t ib = text.find(ib_key);
-    if (ib == std::string_view::npos) {
-        return false;
-    }
-    const std::size_t mode = text.find(mode_key, ib + ib_key.size());
-    if (mode == std::string_view::npos) {
-        return false;
-    }
-    const std::size_t at = mode + mode_key.size();
-    if (at + 1 >= blob.size() || blob[at] < '1' || blob[at] > '2'
-        || (blob[at + 1] >= '0' && blob[at + 1] <= '9')) {
-        return false;
-    }
-    blob[at] = static_cast<std::uint8_t>('0' + target_mode);
-    return true;
-}
-
 /* Constructs one Pipeline against profile with every flag-carried
  * override in the opts string (zero values included — the shared
  * library treats zero as "profile default"), then obtains the Init
@@ -722,6 +693,7 @@ bool build_pipeline(const Config &cfg, const std::string &profile,
                     std::optional<itb::Pipeline> &pipe, std::vector<std::uint8_t> &blob)
 {
     itb::Opts opts;
+    opts.set("mode", fmt("%d", cfg.blob_mode));
     opts.set("innerHash", cfg.hash);
     opts.set("macName", cfg.mac);
     opts.set("withParallax", cfg.parallax ? "true" : "false");
@@ -754,25 +726,6 @@ bool build_pipeline(const Config &cfg, const std::string &profile,
         err_line(fmt("Save(%s): %s", profile.c_str(), detail(e).c_str()));
         pipe.reset();
         return false;
-    }
-    if (cfg.blob_mode == 2) {
-        /* The sizing mode is not an Opts knob: the Init blob is edited
-         * and the pipeline reopened from it, so the retained blob (the
-         * one blob-cycle reopens from) carries the edited mode. */
-        if (!edit_inner_blob_mode(blob, 2)) {
-            err_line("rewrite blob mode: inner blob mode field not found");
-            pipe.reset();
-            blob.clear();
-            return false;
-        }
-        pipe.reset();
-        try {
-            pipe = itb::Pipeline::load(itb::as_bytes(blob));
-        } catch (const itb::Error &e) {
-            err_line(fmt("reload Mode 2 blob: %s", detail(e).c_str()));
-            blob.clear();
-            return false;
-        }
     }
     log_pipeline_initialised(profile, blob);
     return true;

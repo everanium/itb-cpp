@@ -84,7 +84,8 @@ options of its own:
 
 ```cpp
 itb::Opts opts;
-opts.set("chunkSize", "65536").set("withWrapper", "false").set("maxWorkers", "4");
+// Mode 1 per-region (default), Mode 2 per-container (compact VPN tunnel mode)
+opts.set("mode", "2").set("chunkSize", "65536").set("withWrapper", "false").set("maxWorkers", "4");
 itb::Pipeline sender =
     itb::Pipeline::init("singlemsg-triple-mac-v1", opts);
 itb::Pipeline receiver = itb::Pipeline::load(itb::as_bytes(sender.save()));
