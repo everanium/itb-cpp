@@ -45,7 +45,7 @@
 
 /* Binding version. Tracks the C++ wrapper; call itb::version() for
  * the underlying libitb3 library version. */
-#define ITB_CPP_VERSION "0.6.1"
+#define ITB_CPP_VERSION "0.7.1"
 
 namespace itb {
 
@@ -433,7 +433,7 @@ std::string hash_names();
 /* Runtime + diagnostics                                               */
 /* ------------------------------------------------------------------ */
 
-/* The libitb3 library version string (e.g. "0.6.1"). */
+/* The libitb3 library version string (e.g. "0.7.1"). */
 std::string version();
 
 /* The fill cipher the auto DRBG tier selected on this host
