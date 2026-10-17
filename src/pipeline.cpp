@@ -10,6 +10,7 @@
  * wire format, MAC handling — is Go's job.
  */
 
+#include <algorithm>
 #include <memory>
 
 #include "internal.hpp"
@@ -86,6 +87,63 @@ Pipeline Pipeline::init(std::string_view profile, const Opts &opts)
     Pipeline pipe;
     pipe.handle_ = handle;
     return pipe;
+}
+
+Pipeline Pipeline::init_keys(std::string_view profile,
+                             std::span<const std::span<const std::byte>> masters,
+                             const Opts &opts)
+{
+    const std::string prof(profile);
+    std::size_t total = 0;
+    std::vector<std::size_t> lens(masters.size());
+    for (std::size_t i = 0; i < masters.size(); ++i) {
+        lens[i] = masters[i].size();
+        total += masters[i].size();
+    }
+    struct SecretBuf {
+        std::vector<std::byte> data;
+        ~SecretBuf()
+        {
+            volatile std::byte *p = data.data();
+            for (std::size_t i = 0; i < data.size(); ++i) {
+                p[i] = std::byte{0};
+            }
+        }
+    } flat{std::vector<std::byte>(total)};
+    std::size_t off = 0;
+    for (std::size_t i = 0; i < masters.size(); ++i) {
+        if (!masters[i].empty()) {
+            std::copy(masters[i].begin(), masters[i].end(),
+                      flat.data.begin() + static_cast<std::ptrdiff_t>(off));
+            off += masters[i].size();
+        }
+    }
+    uintptr_t handle = 0;
+    (void)buf_call(
+        [&](void *out, std::size_t cap, std::size_t *len) {
+            handle = 0;
+            return ITB_Triple_InitKeys(
+                ffi_str(prof), ffi_str(opts.query()),
+                flat.data.empty() ? nullptr : flat.data.data(), flat.data.size(),
+                lens.empty() ? nullptr : lens.data(), lens.size(),
+                out, cap, len, &handle);
+        },
+        "Pipeline::init_keys");
+    Pipeline pipe;
+    pipe.handle_ = handle;
+    return pipe;
+}
+
+Pipeline Pipeline::init_keys(std::string_view profile,
+                             const std::vector<std::vector<std::uint8_t>> &masters,
+                             const Opts &opts)
+{
+    std::vector<std::span<const std::byte>> spans;
+    spans.reserve(masters.size());
+    for (const auto &m : masters) {
+        spans.push_back(as_bytes(m));
+    }
+    return init_keys(profile, std::span<const std::span<const std::byte>>(spans), opts);
 }
 
 Pipeline Pipeline::load(std::span<const std::byte> blob,

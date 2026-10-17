@@ -45,7 +45,7 @@
 
 /* Binding version. Tracks the C++ wrapper; call itb::version() for
  * the underlying libitb3 library version. */
-#define ITB_CPP_VERSION "0.7.2"
+#define ITB_CPP_VERSION "0.7.3"
 
 namespace itb {
 
@@ -260,6 +260,18 @@ public:
     /* Constructs a fresh Pipeline against the named profile. */
     static Pipeline init(std::string_view profile, const Opts &opts = {});
 
+    /* Deterministically constructs a Pipeline from eight caller-supplied
+     * master keys (one per canonical seed slot 0..7) against the named
+     * profile and options. The eight master keys must come from
+     * independent entropy or key-agreement sources; never derive all eight
+     * keys from a single secret or a single KDF parent key. */
+    static Pipeline init_keys(std::string_view profile,
+                              std::span<const std::span<const std::byte>> masters,
+                              const Opts &opts = {});
+    static Pipeline init_keys(std::string_view profile,
+                              const std::vector<std::vector<std::uint8_t>> &masters,
+                              const Opts &opts = {});
+
     /* Reconstructs a Pipeline from a blob produced by save / rekey.
      * Pass empty masters to use the blob-embedded ones; to override,
      * supply both (a half-supplied pair is rejected by libitb3). The
@@ -433,7 +445,7 @@ std::string hash_names();
 /* Runtime + diagnostics                                               */
 /* ------------------------------------------------------------------ */
 
-/* The libitb3 library version string (e.g. "0.7.2"). */
+/* The libitb3 library version string (e.g. "0.7.3"). */
 std::string version();
 
 /* The fill cipher the auto DRBG tier selected on this host

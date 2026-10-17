@@ -195,6 +195,44 @@ static int run_mode()
     return 0;
 }
 
+static int run_init_keys()
+{
+    std::vector<std::vector<std::uint8_t>> masters(8);
+    for (std::size_t i = 0; i < 8; ++i) {
+        masters[i].assign(32, static_cast<std::uint8_t>(0x11 * (i + 1)));
+    }
+
+    itb::Pipeline p1 = itb::Pipeline::init_keys("singlemsg-triple-mac-v1", masters);
+    itb::Pipeline p2 = itb::Pipeline::init_keys("singlemsg-triple-mac-v1", masters);
+    TEST_ASSERT(p1.save() == p2.save(), "init_keys blobs must match deterministically");
+    if (round_trip(p1, p2, "init_keys") != 0) {
+        return 1;
+    }
+
+    /* Duplicate master keys must throw BadInput. */
+    auto dup = masters;
+    dup[1] = dup[0];
+    try {
+        (void)itb::Pipeline::init_keys("singlemsg-triple-mac-v1", dup);
+        TEST_ASSERT(false, "duplicate master keys must throw");
+    } catch (const itb::Error &e) {
+        TEST_ASSERT(e.status() == itb::Status::BadInput, "duplicate master keys: got %d",
+                    static_cast<int>(e.status()));
+    }
+
+    /* Short 8-byte key must throw BadInput. */
+    auto short_keys = masters;
+    short_keys[0].assign(8, 0x11);
+    try {
+        (void)itb::Pipeline::init_keys("singlemsg-triple-mac-v1", short_keys);
+        TEST_ASSERT(false, "short master key must throw");
+    } catch (const itb::Error &e) {
+        TEST_ASSERT(e.status() == itb::Status::BadInput, "short master key: got %d",
+                    static_cast<int>(e.status()));
+    }
+    return 0;
+}
+
 static int run_all()
 {
     if (run() != 0) {
@@ -203,7 +241,10 @@ static int run_all()
     if (run_drbg() != 0) {
         return 1;
     }
-    return run_mode();
+    if (run_mode() != 0) {
+        return 1;
+    }
+    return run_init_keys();
 }
 
 TEST_MAIN(run_all)

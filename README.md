@@ -13,7 +13,7 @@ time** (`-litb3_cpp -litb3` with an embedded RPATH) — no runtime symbol
 loading. Every hash-name / MAC-name / cipher-name / profile-name is an
 opaque `std::string` passed through to Go for validation; the binding
 carries no ITB construction logic. The public surface is one
-RAII-managed `itb::Pipeline` (init / load / save / rekey / close, Single
+RAII-managed `itb::Pipeline` (init / init_keys / load / save / rekey / close, Single
 Message encrypt / decrypt, one-shot and whole-buffer stream pumps, incremental
 `itb::EncryptStream` / `itb::DecryptStream` sessions with write / end /
 read), an `itb::Opts` query-string builder, `itb::register_profile`,
@@ -90,6 +90,8 @@ itb::Pipeline sender =
     itb::Pipeline::init("singlemsg-triple-mac-v1", opts);
 itb::Pipeline receiver = itb::Pipeline::load(itb::as_bytes(sender.save()));
 ```
+
+`Pipeline::init_keys` constructs a `Pipeline` deterministically from eight caller-supplied master keys (one per seed slot `0..7`) via per-slot KDF, so two peers holding the same eight master keys derive identical `Pipeline` instances without exchanging a session blob. The eight master keys must come from independent entropy or key-agreement sources — never derive all eight keys from a single secret or a single KDF parent key.
 
 `Pipeline::rekey` rotates the parallax + wrapper masters mid-session
 (the eight ITB seeds and MAC key are fixed for the session lifetime
