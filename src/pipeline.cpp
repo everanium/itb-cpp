@@ -28,6 +28,19 @@ using detail::ffi_str;
 
 namespace {
 
+/* Zeroes a buffer through a volatile byte pointer so the compiler
+ * cannot dead-store-eliminate the wipe before release. */
+void wipe_bytes(void *ptr, std::size_t len) noexcept
+{
+    if (ptr == nullptr || len == 0) {
+        return;
+    }
+    volatile std::uint8_t *p = static_cast<volatile std::uint8_t *>(ptr);
+    for (std::size_t i = 0; i < len; ++i) {
+        p[i] = 0;
+    }
+}
+
 /* Single retry-once dispatch site for every variable-size output
  * buffer (init / rekey / save / inspect / lookup / profiles):
  * pre-allocate kBlobCap, and on Status::BufferTooSmall retry once
@@ -35,20 +48,23 @@ namespace {
 template <typename Fn>
 std::vector<std::uint8_t> buf_call(Fn &&fn, const char *what)
 {
-    std::vector<std::uint8_t> buf(detail::kBlobCap);
+    struct WipeGuard {
+        std::vector<std::uint8_t> buf;
+        ~WipeGuard() { wipe_bytes(buf.data(), buf.size()); }
+    } g{std::vector<std::uint8_t>(detail::kBlobCap)};
     std::size_t n = 0;
-    int rc = fn(buf.data(), buf.size(), &n);
-    if (rc == static_cast<int>(Status::BufferTooSmall) && n > buf.size()) {
-        buf.resize(n);
-        rc = fn(buf.data(), buf.size(), &n);
+    int rc = fn(g.buf.data(), g.buf.size(), &n);
+    if (rc == static_cast<int>(Status::BufferTooSmall) && n > g.buf.size()) {
+        wipe_bytes(g.buf.data(), g.buf.size());
+        g.buf.assign(n, 0);
+        rc = fn(g.buf.data(), g.buf.size(), &n);
     }
     check(rc, what);
-    if (n > buf.size()) {
+    if (n > g.buf.size()) {
         fail(static_cast<int>(Status::Internal), what);
     }
-    buf.resize(n);
-    buf.shrink_to_fit();
-    return buf;
+    return std::vector<std::uint8_t>(
+        g.buf.begin(), g.buf.begin() + static_cast<std::ptrdiff_t>(n));
 }
 
 std::string json_call(std::vector<std::uint8_t> bytes)
@@ -77,13 +93,14 @@ Pipeline Pipeline::init(std::string_view profile, const Opts &opts)
     /* The init blob is not retained binding-side; save() reads the
      * current bytes from libitb3. On a buffer retry Go closes the
      * undersized attempt and the re-run yields a fresh session. */
-    (void)buf_call(
+    auto blob = buf_call(
         [&](void *out, std::size_t cap, std::size_t *len) {
             handle = 0;
             return ITB_Triple_Init(ffi_str(prof), ffi_str(opts.query()),
                                    out, cap, len, &handle);
         },
         "Pipeline::init");
+    wipe_bytes(blob.data(), blob.size());
     Pipeline pipe;
     pipe.handle_ = handle;
     return pipe;
@@ -104,10 +121,7 @@ Pipeline Pipeline::init_keys(std::string_view profile,
         std::vector<std::byte> data;
         ~SecretBuf()
         {
-            volatile std::byte *p = data.data();
-            for (std::size_t i = 0; i < data.size(); ++i) {
-                p[i] = std::byte{0};
-            }
+            wipe_bytes(data.data(), data.size());
         }
     } flat{std::vector<std::byte>(total)};
     std::size_t off = 0;
@@ -119,7 +133,7 @@ Pipeline Pipeline::init_keys(std::string_view profile,
         }
     }
     uintptr_t handle = 0;
-    (void)buf_call(
+    auto blob = buf_call(
         [&](void *out, std::size_t cap, std::size_t *len) {
             handle = 0;
             return ITB_Triple_InitKeys(
@@ -129,6 +143,7 @@ Pipeline Pipeline::init_keys(std::string_view profile,
                 out, cap, len, &handle);
         },
         "Pipeline::init_keys");
+    wipe_bytes(blob.data(), blob.size());
     Pipeline pipe;
     pipe.handle_ = handle;
     return pipe;
