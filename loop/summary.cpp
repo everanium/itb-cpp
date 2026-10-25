@@ -298,6 +298,7 @@ int final_summary(RunState &r, std::int64_t elapsed_ns)
             auto_tier.clear();
         }
         j += ",\"drbg_auto_tier\":" + json_string(auto_tier);
+        j += ",\"interlock\":" + json_string(cfg.interlock);
         j += fmt(",\"chunk_size_bytes\":%lld", static_cast<long long>(cfg.chunk_size));
         j += fmt(",\"barrier_fill\":%d", cfg.barrier_fill);
         j += fmt(",\"parallax\":\"%s\"", on_off(cfg.parallax));

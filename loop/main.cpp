@@ -83,6 +83,7 @@ struct RawFlags {
     int gomaxprocs = 0;
     int goroutines = 3;
     std::string hash = "areion512";
+    std::string interlock;
     std::int64_t iterations = 0;
     bool json_output = false;
     int key_bits = 0;
@@ -219,6 +220,8 @@ std::vector<Flag> flag_table(RawFlags &f)
     add_int("goroutines", f.goroutines,
             "concurrent workers (1..10); on runtimes without parallelism values above 1 are clamped to 1");
     add_string("hash", "string", f.hash, "inner ITB hash primitive name");
+    add_string("interlock", "string", f.interlock,
+               "Interlocked Barrier chunk width: 48 | 168; empty = profile default (48; 168 requires 512-bit hash)");
     add_int64("iterations", f.iterations,
               "fixed per-worker iteration count; 0 = duration-based");
     add_bool("json-output", f.json_output,
@@ -552,6 +555,12 @@ int parse_flags(int argc, char **argv, Config &cfg)
         return -1;
     }
     cfg.drbg = f.drbg; /* validated by Init: the C ABI enumerates no DRBG names */
+    cfg.interlock = f.interlock;
+    if (cfg.interlock != "" && cfg.interlock != "48" && cfg.interlock != "168") {
+        err_line(fmt("--interlock must be 48 | 168 (or empty = profile default), got \"%s\"",
+                     cfg.interlock.c_str()));
+        return -1;
+    }
     if (!parse_size(f.chunk_size, cfg.chunk_size)) {
         err_line(fmt("--chunk-size: invalid size \"%s\"", f.chunk_size.c_str()));
         return -1;
@@ -680,6 +689,10 @@ void log_pipeline_initialised(const std::string &profile,
     if (drbg != "-") {
         line += " drbg=" + drbg;
     }
+    const std::string interlock = record_str(json, "interlock");
+    if (interlock != "-") {
+        line += " interlock=" + interlock;
+    }
     log_line(line);
 }
 
@@ -702,6 +715,7 @@ bool build_pipeline(const Config &cfg, const std::string &profile,
     opts.set("nonceBits", fmt("%d", cfg.nonce_bits));
     opts.set("barrierFill", fmt("%d", cfg.barrier_fill));
     opts.set("drbg", cfg.drbg);
+    opts.set("interlock", cfg.interlock);
     opts.set("chunkSize", fmt("%lld", static_cast<long long>(cfg.chunk_size)));
     if (!cfg.profile.empty()) {
         const int filled = fill_keystream_layers(cfg.profile, opts, cfg.parallax, cfg.wrapper);
@@ -796,6 +810,9 @@ int run(int argc, char **argv)
     }
     if (!cfg.drbg.empty()) {
         overrides += " drbg=" + cfg.drbg;
+    }
+    if (!cfg.interlock.empty()) {
+        overrides += " interlock=" + cfg.interlock;
     }
     log_line(overrides);
     log_line(fmt("policy: microbatch-tiers=%s hashpool-starters=%s",

@@ -195,6 +195,52 @@ static int run_mode()
     return 0;
 }
 
+static int run_interlock()
+{
+    itb::Opts opts;
+    opts.set("interlock", "168");
+    itb::Pipeline sender = itb::Pipeline::init("singlemsg-triple-mac-v1", opts);
+    const std::vector<std::uint8_t> blob = sender.save();
+    itb::Pipeline receiver = itb::Pipeline::load(itb::as_bytes(blob));
+    if (round_trip(sender, receiver, "interlock-168") != 0) {
+        return 1;
+    }
+    if (round_trip(receiver, sender, "interlock-168-back") != 0) {
+        return 1;
+    }
+    const std::string inspected = itb::inspect(itb::as_bytes(blob));
+    TEST_ASSERT(inspected.find("\"interlock\":\"168\"") != std::string::npos,
+                "inspect must carry interlock 168: %s", inspected.c_str());
+
+    itb::Pipeline plain = itb::Pipeline::init("singlemsg-triple-mac-v1");
+    const std::string def_inspected = itb::inspect(itb::as_bytes(plain.save()));
+    TEST_ASSERT(def_inspected.find("\"interlock\"") == std::string::npos,
+                "default inspect must omit interlock: %s", def_inspected.c_str());
+
+    /* 256-bit hash with interlock=168 must throw BadInput. */
+    itb::Opts bad_width;
+    bad_width.set("innerHash", "blake3").set("interlock", "168");
+    try {
+        (void)itb::Pipeline::init("singlemsg-triple-mac-v1", bad_width);
+        TEST_ASSERT(false, "256-bit interlock 168 must throw");
+    } catch (const itb::Error &e) {
+        TEST_ASSERT(e.status() == itb::Status::BadInput, "256-bit interlock 168: got %d",
+                    static_cast<int>(e.status()));
+    }
+
+    /* Invalid interlock=96 must throw BadInput. */
+    itb::Opts bad_val;
+    bad_val.set("interlock", "96");
+    try {
+        (void)itb::Pipeline::init("singlemsg-triple-mac-v1", bad_val);
+        TEST_ASSERT(false, "interlock 96 must throw");
+    } catch (const itb::Error &e) {
+        TEST_ASSERT(e.status() == itb::Status::BadInput, "interlock 96: got %d",
+                    static_cast<int>(e.status()));
+    }
+    return 0;
+}
+
 static int run_init_keys()
 {
     std::vector<std::vector<std::uint8_t>> masters(8);
@@ -242,6 +288,9 @@ static int run_all()
         return 1;
     }
     if (run_mode() != 0) {
+        return 1;
+    }
+    if (run_interlock() != 0) {
         return 1;
     }
     return run_init_keys();
