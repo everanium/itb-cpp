@@ -192,6 +192,14 @@ static int run_mode()
     const std::string inspected = itb::inspect(itb::as_bytes(blob));
     TEST_ASSERT(inspected.find("\"container_mode\":2") != std::string::npos,
                 "inspect mode 2 must report container_mode 2: %s", inspected.c_str());
+
+    itb::Opts opts3;
+    opts3.set("mode", "3");
+    itb::Pipeline pipe3 = itb::Pipeline::init("singlemsg-triple-mac-v1", opts3);
+    const auto blob3 = pipe3.save();
+    const std::string inspected3 = itb::inspect(itb::as_bytes(blob3));
+    TEST_ASSERT(inspected3.find("\"container_mode\":3") != std::string::npos,
+                "inspect mode 3 must report container_mode 3: %s", inspected3.c_str());
     return 0;
 }
 

@@ -88,7 +88,7 @@ struct Config {
     std::string profile;           /* empty = shape-based profile pair */
     int key_bits = 0;              /* 0 = profile default */
     int nonce_bits = 0;            /* 0 = profile default */
-    int blob_mode = 1;             /* container floor sizing mode: 1 (per-region, default) | 2 (per-container) */
+    int blob_mode = 1;             /* container floor sizing mode: 1 (per-region, default) | 2 (per-container) | 3 (gauss-posit) */
     std::int64_t chunk_size = 0;   /* 0 = profile default */
     int barrier_fill = 0;          /* 0 = profile default */
     std::string drbg;              /* DRBG fill primitive; "" = profile default (auto tier) */

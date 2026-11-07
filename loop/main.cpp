@@ -207,7 +207,7 @@ std::vector<Flag> flag_table(RawFlags &f)
     add_int64("blob-cycle-every", f.blob_cycle_every,
               "reopen each pipeline from its session blob every N iterations per worker; 0 = never");
     add_int("blob-mode", f.blob_mode,
-            "container floor sizing mode: 1 (per-region, default) | 2 (per-container)");
+            "container floor sizing mode: 1 (per-region, default) | 2 (per-container) | 3 (gauss-posit)");
     add_string("chunk-size", "string", f.chunk_size,
                "streaming chunk-size budget (e.g. 4MB); 0 = profile default; inert for pure message shape");
     add_string("drbg", "string", f.drbg,
@@ -538,10 +538,10 @@ int parse_flags(int argc, char **argv, Config &cfg)
     }
     cfg.blob_mode = f.blob_mode;
     switch (cfg.blob_mode) {
-    case 1: case 2:
+    case 1: case 2: case 3:
         break;
     default:
-        err_line(fmt("--blob-mode must be 1 (per-region) | 2 (per-container), got %d",
+        err_line(fmt("--blob-mode must be 1 (per-region) | 2 (per-container) | 3 (gauss-posit), got %d",
                      cfg.blob_mode));
         return -1;
     }
@@ -682,7 +682,7 @@ void log_pipeline_initialised(const std::string &profile,
                            record_str(json, "mac").c_str(),
                            on_off(record_bool(json, "parallax")), on_off(record_bool(json, "wrapper")));
     const long long container_mode = record_int(json, "container_mode");
-    if (container_mode == 2) {
+    if (container_mode == 2 || container_mode == 3) {
         line += fmt(" container-mode=%lld", container_mode);
     }
     const std::string drbg = record_str(json, "drbg");
